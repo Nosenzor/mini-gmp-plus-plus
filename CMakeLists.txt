@@ -19,8 +19,8 @@ set_target_properties(mini-gmp-plus PROPERTIES VERSION 6.2)
 set_target_properties(mini-gmp-plus PROPERTIES SOVERSION 6.2)
 
 # Add C++ wrapper test executable
-add_executable(test_BigInt tests/test_BigInt.cpp)
-target_link_libraries(test_BigInt mini-gmp-plus)
+add_executable(test_MiniMPZ tests/test_MiniMPZ.cpp)
+target_link_libraries(test_MiniMPZ mini-gmp-plus)
 
 if(MINI_GMP_PLUS_WITH_TESTS)
    add_subdirectory(tests)

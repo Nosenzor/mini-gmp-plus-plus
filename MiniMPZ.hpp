@@ -1,55 +1,55 @@
-// BigInt.hpp
-#ifndef BIGINT_HPP
-#define BIGINT_HPP
+// MiniMPZ.hpp
+#ifndef MINIMPZ_HPP
+#define MINIMPZ_HPP
 
 #include "mini-gmp.h"
 #include <string>
 #include <stdexcept>
 #include <ostream>
 
-class BigInt {
+class MiniMPZ {
 private:
     mpz_t value_;
 
 public:
     // Constructors
-    BigInt() { mpz_init(value_); }
+    MiniMPZ() { mpz_init(value_); }
 
     explicit
-    BigInt(long val) { mpz_init_set_si(value_, val); }
+    MiniMPZ(long val) { mpz_init_set_si(value_, val); }
 
     explicit
-    BigInt(unsigned long val) { mpz_init_set_ui(value_, val); }
+    MiniMPZ(unsigned long val) { mpz_init_set_ui(value_, val); }
 
     explicit
-    BigInt(double val) { mpz_init_set_d(value_, val); }
+    MiniMPZ(double val) { mpz_init_set_d(value_, val); }
 
     explicit
-    BigInt(float val) : BigInt(static_cast<double>(val)) {}
+    MiniMPZ(float val) : MiniMPZ(static_cast<double>(val)) {}
 
-    BigInt(const char* str, int base = 10) {
+    MiniMPZ(const char* str, int base = 10) {
         if (mpz_init_set_str(value_, str, base) != 0) {
             mpz_clear(value_);
-            throw std::invalid_argument("Invalid string for BigInt");
+            throw std::invalid_argument("Invalid string for MiniMPZ");
         }
     }
 
-    BigInt(const std::string& str, int base = 10) : BigInt(str.c_str(), base) {}
+    MiniMPZ(const std::string& str, int base = 10) : MiniMPZ(str.c_str(), base) {}
 
     // Copy constructor
-    BigInt(const BigInt& other) { mpz_init_set(value_, other.value_); }
+    MiniMPZ(const MiniMPZ& other) { mpz_init_set(value_, other.value_); }
 
     // Move constructor
-    BigInt(BigInt&& other) noexcept {
+    MiniMPZ(MiniMPZ&& other) noexcept {
         *value_ = *other.value_;
         mpz_init(other.value_);
     }
 
     // Destructor
-    ~BigInt() { mpz_clear(value_); }
+    ~MiniMPZ() { mpz_clear(value_); }
 
     // Copy assignment
-    BigInt& operator=(const BigInt& other) {
+    MiniMPZ& operator=(const MiniMPZ& other) {
         if (this != &other) {
             mpz_set(value_, other.value_);
         }
@@ -57,7 +57,7 @@ public:
     }
 
     // Move assignment
-    BigInt& operator=(BigInt&& other) noexcept {
+    MiniMPZ& operator=(MiniMPZ&& other) noexcept {
         if (this != &other) {
             mpz_clear(value_);
             *value_ = *other.value_;
@@ -67,90 +67,90 @@ public:
     }
 
     // Arithmetic operators
-    BigInt operator+(const BigInt& other) const {
-        BigInt result;
+    MiniMPZ operator+(const MiniMPZ& other) const {
+        MiniMPZ result;
         mpz_add(result.value_, value_, other.value_);
         return result;
     }
 
-    BigInt operator-(const BigInt& other) const {
-        BigInt result;
+    MiniMPZ operator-(const MiniMPZ& other) const {
+        MiniMPZ result;
         mpz_sub(result.value_, value_, other.value_);
         return result;
     }
 
-    BigInt operator*(const BigInt& other) const {
-        BigInt result;
+    MiniMPZ operator*(const MiniMPZ& other) const {
+        MiniMPZ result;
         mpz_mul(result.value_, value_, other.value_);
         return result;
     }
 
-    BigInt operator/(const BigInt& other) const {
-        BigInt result;
+    MiniMPZ operator/(const MiniMPZ& other) const {
+        MiniMPZ result;
         mpz_tdiv_q(result.value_, value_, other.value_);
         return result;
     }
 
-    BigInt operator%(const BigInt& other) const {
-        BigInt result;
+    MiniMPZ operator%(const MiniMPZ& other) const {
+        MiniMPZ result;
         mpz_mod(result.value_, value_, other.value_);
         return result;
     }
 
-    BigInt operator-() const {
-        BigInt result;
+    MiniMPZ operator-() const {
+        MiniMPZ result;
         mpz_neg(result.value_, value_);
         return result;
     }
 
     // Compound assignment operators
-    BigInt& operator+=(const BigInt& other) {
+    MiniMPZ& operator+=(const MiniMPZ& other) {
         mpz_add(value_, value_, other.value_);
         return *this;
     }
 
-    BigInt& operator-=(const BigInt& other) {
+    MiniMPZ& operator-=(const MiniMPZ& other) {
         mpz_sub(value_, value_, other.value_);
         return *this;
     }
 
-    BigInt& operator*=(const BigInt& other) {
+    MiniMPZ& operator*=(const MiniMPZ& other) {
         mpz_mul(value_, value_, other.value_);
         return *this;
     }
 
-    BigInt& operator/=(const BigInt& other) {
+    MiniMPZ& operator/=(const MiniMPZ& other) {
         mpz_tdiv_q(value_, value_, other.value_);
         return *this;
     }
 
-    BigInt& operator%=(const BigInt& other) {
+    MiniMPZ& operator%=(const MiniMPZ& other) {
         mpz_mod(value_, value_, other.value_);
         return *this;
     }
 
     // Comparison operators
-    bool operator==(const BigInt& other) const {
+    bool operator==(const MiniMPZ& other) const {
         return mpz_cmp(value_, other.value_) == 0;
     }
 
-    bool operator!=(const BigInt& other) const {
+    bool operator!=(const MiniMPZ& other) const {
         return mpz_cmp(value_, other.value_) != 0;
     }
 
-    bool operator<(const BigInt& other) const {
+    bool operator<(const MiniMPZ& other) const {
         return mpz_cmp(value_, other.value_) < 0;
     }
 
-    bool operator<=(const BigInt& other) const {
+    bool operator<=(const MiniMPZ& other) const {
         return mpz_cmp(value_, other.value_) <= 0;
     }
 
-    bool operator>(const BigInt& other) const {
+    bool operator>(const MiniMPZ& other) const {
         return mpz_cmp(value_, other.value_) > 0;
     }
 
-    bool operator>=(const BigInt& other) const {
+    bool operator>=(const MiniMPZ& other) const {
         return mpz_cmp(value_, other.value_) >= 0;
     }
 
@@ -169,20 +169,20 @@ public:
     }
 
     // Utility methods
-    BigInt abs() const {
-        BigInt result;
+    MiniMPZ abs() const {
+        MiniMPZ result;
         mpz_abs(result.value_, value_);
         return result;
     }
 
-    BigInt pow(unsigned long exp) const {
-        BigInt result;
+    MiniMPZ pow(unsigned long exp) const {
+        MiniMPZ result;
         mpz_pow_ui(result.value_, value_, exp);
         return result;
     }
 
-    BigInt sqrt() const {
-        BigInt result;
+    MiniMPZ sqrt() const {
+        MiniMPZ result;
         mpz_sqrt(result.value_, value_);
         return result;
     }
@@ -194,7 +194,7 @@ public:
     bool is_odd() const { return mpz_odd_p(value_); }
 
     // Stream output
-    friend std::ostream& operator<<(std::ostream& os, const BigInt& num) {
+    friend std::ostream& operator<<(std::ostream& os, const MiniMPZ& num) {
         return os << num.to_string();
     }
 
@@ -203,4 +203,5 @@ public:
     const mpz_t& get_mpz() const { return value_; }
 };
 
-#endif // BIGINT_HPP
+#endif // MINIMPZ_HPP
+
