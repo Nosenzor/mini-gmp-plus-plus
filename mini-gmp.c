@@ -629,24 +629,6 @@ mpn_mul (mp_ptr rp, mp_srcptr up, mp_size_t un, mp_srcptr vp, mp_size_t vn)
   assert (!GMP_MPN_OVERLAP_P(rp, un + vn, up, un));
   assert (!GMP_MPN_OVERLAP_P(rp, un + vn, vp, vn));
 
-#ifdef GMPEXT_SMOL_MUL
-  if(un == 1 && vn == 1) {
-      mpn_mul_1_1(rp, up, vp);
-      return rp[1];
-  }
-
-  if(un == 2 && vn == 1) {
-      mpn_mul_1_2(rp, vp, up);
-      return rp[2];
-  }
-
-  if(un == 2 && vn == 2) {
-      mpn_mul_2_2(rp, up, vp);
-      return rp[2];
-  }
-
-#endif
-
   /* We first multiply by the low order limb. This result can be
      stored, not added, to rp. We also avoid a loop for zeroing this
      way. */

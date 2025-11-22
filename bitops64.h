@@ -34,6 +34,7 @@
 #  pragma intrinsic(_BitScanForward)
 #  pragma intrinsic(_BitScanReverse)
 #  pragma intrinsic(__shiftleft128)
+#  pragma intrinsic(_umul128)
 #  define BITOPS64_INLINE __forceinline
 #  if _WIN64
 #  else

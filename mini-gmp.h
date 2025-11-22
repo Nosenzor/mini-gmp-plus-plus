@@ -57,7 +57,7 @@ see https://www.gnu.org/licenses/.  */
 #  define MINI_GMP_PLUS_EXPORT
 #endif
 
-#ifdef GMPEXT_STANDALONE
+#ifdef MINI_GMP_PLUS_STATIC
 #  define MINI_GMP_PLUS_API
 #else
 #  ifdef mini_gmp_plus_EXPORTS

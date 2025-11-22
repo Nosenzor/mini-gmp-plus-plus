@@ -1,10 +1,16 @@
-2025-10-19: Bruno Lévy <Bruno.Levy@inria.fr>
-	* mini-gmp.h:
-	  - limb_t defined as uint64_t, from stdint.h
-	  - MINI_GMP_PLUS_API import / export decl spec
-	  - local buffer in mpz_t for avoiding dynamic allocation for small
-	    numbers. MINI_GMP_PLUS_BUFF_SIZE defines the threshold (set to 5).
-	* mini-gmp.c: taking into account MINI_GMP_PLUS_BUFF_SIZE
+2025-11-10: Bruno Lévy <Bruno.Levy@inria.fr>
+	* mini-gmp.h (MINI_GMP_PLUS_BUFF_SIZE): only define
+	MINI_GMP_PLUS_BUFF_SIZE if not already defined and if
+	MINI_GMP_PLUS_NO_BUFF is not defined. Note: make sure you use the
+	same MINI_GMP_PLUS_BUFF_SIZE when you compile mini-gmp-plus and when
+	you compile a program that uses it !
+
+2025-11-06: Bruno Lévy <Bruno.Levy@inria.fr>
+        * t-add.c:
+	* t-sub.c:
+	* t-mul.c: Defined MAXBITS as 321 (5*64) in order to test
+	operations combining numbers that fit in the local buffers with numbers
+	that use dynamically allocated limbs
 
 2025-11-04: Bruno Lévy <Bruno.Levy@inria.fr>
         * tests/CMakeLists.txt:
@@ -22,16 +28,10 @@
 	mini-gmp.c and mini-mpq.c in tests/testutils.c directly, so that we
 	can also test whether dynamic linking works.
 
-2025-11-06: Bruno Lévy <Bruno.Levy@inria.fr>
-        * t-add.c:
-	* t-sub.c:
-	* t-mul.c: Defined MAXBITS as 321 (5*64) in order to test
-	operations combining numbers that fit in the local buffers with numbers
-	that use dynamically allocated limbs
-
-2025-11-10: Bruno Lévy <Bruno.Levy@inria.fr>
-	* mini-gmp.h (MINI_GMP_PLUS_BUFF_SIZE): only define
-	MINI_GMP_PLUS_BUFF_SIZE if not already defined and if
-	MINI_GMP_PLUS_NO_BUFF is not defined. Note: make sure you use the
-	same MINI_GMP_PLUS_BUFF_SIZE when you compile mini-gmp-plus and when
-	you compile a program that uses it !
+2025-10-19: Bruno Lévy <Bruno.Levy@inria.fr>
+	* mini-gmp.h:
+	  - limb_t defined as uint64_t, from stdint.h
+	  - MINI_GMP_PLUS_API import / export decl spec
+	  - local buffer in mpz_t for avoiding dynamic allocation for small
+	    numbers. MINI_GMP_PLUS_BUFF_SIZE defines the threshold (set to 5).
+	* mini-gmp.c: taking into account MINI_GMP_PLUS_BUFF_SIZE
