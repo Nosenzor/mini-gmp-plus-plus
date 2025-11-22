@@ -14,7 +14,9 @@
 cmake_minimum_required(VERSION 3.5...3.30)
 project(mini-gmp-plus)
 
-add_library(mini-gmp-plus SHARED mini-gmp.c mini-mpq.c)
+add_library(mini-gmp-plus SHARED mini-gmp.c mini-mpq.c
+        BigInt.hpp
+        tests/test_BigInt.cpp)
 set_target_properties(mini-gmp-plus PROPERTIES VERSION 6.2)
 set_target_properties(mini-gmp-plus PROPERTIES SOVERSION 6.2)
 
