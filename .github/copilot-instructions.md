@@ -13,7 +13,14 @@
 cmake -Bbuild
 cmake --build build
 
-# Build with C regression test suite (requires system gmp via pkg-config)
+# With SIMD acceleration via xsimd (ON by default, requires xsimd, e.g. brew install xsimd)
+cmake -Bbuild -DMINI_GMP_ENABLE_SIMD=ON
+cmake --build build
+
+# Without SIMD (to disable)
+cmake -Bbuild -DMINI_GMP_ENABLE_SIMD=OFF
+
+# With C regression test suite (requires system gmp via pkg-config)
 cmake -Bbuild -DMINI_GMP_PLUS_WITH_TESTS=1
 cmake --build build
 ```
