@@ -1,0 +1,32 @@
+mini-gmp-plus provides CMake targets:
+
+    find_package(mini-gmp-plus CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE mini-gmp-plus::mini-gmp-plus)
+
+The following headers are available:
+
+    #include <mini-gmp-plus/mini-gmp.h>     // C interface for multiprecision integers
+    #include <mini-gmp-plus/mini-mpq.h>     // C interface for multiprecision rationals
+    #include <mini-gmp-plus/MiniMPZ.hpp>    // C++ wrapper class
+    #include <mini-gmp-plus/bitops64.h>     // 64-bit operations helpers
+
+Features:
+
+  simd (default ON)
+    SIMD-accelerated limb operations via xsimd (AVX2, SSE2, NEON).
+    Enabled automatically when the 'simd' feature is selected (the default).
+
+    To install without SIMD, add to your vcpkg.json:
+        {
+          "dependencies": [
+            { "name": "mini-gmp-plus", "default-features": false }
+          ]
+        }
+
+    To explicitly request SIMD:
+        {
+          "dependencies": [
+            { "name": "mini-gmp-plus", "features": ["simd"] }
+          ]
+        }
+

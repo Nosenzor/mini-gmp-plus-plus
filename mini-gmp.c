@@ -387,6 +387,7 @@ gmp_free_limbs (mp_ptr old, mp_size_t size)
 
 /* MPN interface */
 
+#ifndef MINI_GMP_SIMD
 void
 mpn_copyi (mp_ptr d, mp_srcptr s, mp_size_t n)
 {
@@ -394,14 +395,18 @@ mpn_copyi (mp_ptr d, mp_srcptr s, mp_size_t n)
   for (i = 0; i < n; i++)
     d[i] = s[i];
 }
+#endif /* MINI_GMP_SIMD */
 
+#ifndef MINI_GMP_SIMD
 void
 mpn_copyd (mp_ptr d, mp_srcptr s, mp_size_t n)
 {
   while (--n >= 0)
     d[n] = s[n];
 }
+#endif /* MINI_GMP_SIMD */
 
+#ifndef MINI_GMP_SIMD
 int
 mpn_cmp (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
@@ -412,6 +417,7 @@ mpn_cmp (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
     }
   return 0;
 }
+#endif /* MINI_GMP_SIMD */
 
 static int
 mpn_cmp4 (mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
@@ -436,12 +442,14 @@ mpn_zero_p(mp_srcptr rp, mp_size_t n)
   return mpn_normalized_size (rp, n) == 0;
 }
 
+#ifndef MINI_GMP_SIMD
 void
 mpn_zero (mp_ptr rp, mp_size_t n)
 {
   while (--n >= 0)
     rp[n] = 0;
 }
+#endif /* MINI_GMP_SIMD */
 
 mp_limb_t
 mpn_add_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
@@ -462,6 +470,7 @@ mpn_add_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
   return b;
 }
 
+#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_add_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
@@ -480,6 +489,7 @@ mpn_add_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
     }
   return cy;
 }
+#endif /* MINI_GMP_SIMD */
 
 mp_limb_t
 mpn_sub_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
@@ -502,6 +512,7 @@ mpn_sub_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
   return b;
 }
 
+#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_sub_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
@@ -519,6 +530,7 @@ mpn_sub_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
     }
   return cy;
 }
+#endif /* MINI_GMP_SIMD */
 
 mp_limb_t
 mpn_add (mp_ptr rp, mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
@@ -658,6 +670,7 @@ mpn_sqr (mp_ptr rp, mp_srcptr ap, mp_size_t n)
   mpn_mul (rp, ap, n, ap, n);
 }
 
+#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_lshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
@@ -687,7 +700,9 @@ mpn_lshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 
   return retval;
 }
+#endif /* MINI_GMP_SIMD */
 
+#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_rshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
@@ -714,6 +729,7 @@ mpn_rshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 
   return retval;
 }
+#endif /* MINI_GMP_SIMD */
 
 static mp_bitcnt_t
 mpn_common_scan (mp_limb_t limb, mp_size_t i, mp_srcptr up, mp_size_t un,
@@ -755,12 +771,14 @@ mpn_scan0 (mp_srcptr ptr, mp_bitcnt_t bit)
 			  i, ptr, i, GMP_LIMB_MAX);
 }
 
+#ifndef MINI_GMP_SIMD
 void
 mpn_com (mp_ptr rp, mp_srcptr up, mp_size_t n)
 {
   while (--n >= 0)
     *rp++ = ~ *up++;
 }
+#endif /* MINI_GMP_SIMD */
 
 mp_limb_t
 mpn_neg (mp_ptr rp, mp_srcptr up, mp_size_t n)

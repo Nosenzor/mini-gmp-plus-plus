@@ -127,6 +127,7 @@ void test_extreme_double_values() {
     // Test negative denormalized
     MiniMPZ neg_denorm(-4.9406564584124654e-324);
     assert(neg_denorm.to_long() == 0);  // Truncates to 0
+    assert(neg_denorm.sign() == -1);
 
     // Test large negative double
     MiniMPZ large_neg(-1.7976931348623157e308);

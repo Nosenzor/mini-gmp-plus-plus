@@ -1,0 +1,17 @@
+{
+  "name": "mini-gmp-plus",
+  "version-string": "1.0.0",
+  "description": "A fork of mini-gmp with optimizations for numerical geometry and modern C++ wrapper",
+  "homepage": "https://github.com/BrunoLevy/mini-gmp-plus",
+  "license": "LGPL-3.0-or-later",
+  "supports": "!(windows & arm)",
+  "dependencies": [],
+  "default-features": ["simd"],
+  "features": {
+    "simd": {
+      "description": "SIMD-accelerated limb operations via xsimd (targets AVX2, SSE2, NEON automatically)",
+      "dependencies": ["xsimd"]
+    }
+  }
+}
+
