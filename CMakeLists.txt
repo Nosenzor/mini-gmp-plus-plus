@@ -21,7 +21,44 @@ project(mini-gmp-plus VERSION 1.0.0 LANGUAGES C CXX)
 # Optional SIMD acceleration via xsimd
 option(MINI_GMP_ENABLE_SIMD "Enable SIMD acceleration using xsimd" ON)
 if(MINI_GMP_ENABLE_SIMD)
-    find_package(xsimd CONFIG REQUIRED)
+    # Try to find xsimd with CONFIG mode first
+    find_package(xsimd QUIET CONFIG)
+    
+    # If CONFIG mode fails, try module mode
+    if(NOT xsimd_FOUND)
+        find_package(xsimd QUIET MODULE)
+    endif()
+    
+    # If still not found, try pkg-config
+    if(NOT xsimd_FOUND)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(xsimd QUIET xsimd)
+        endif()
+    endif()
+    
+    # If xsimd is still not found, try to find it manually
+    if(NOT xsimd_FOUND)
+        find_path(xsimd_INCLUDE_DIRS
+            NAMES xsimd/xsimd.hpp
+            PATHS
+            /usr/local/include
+            /usr/include
+            /opt/homebrew/include
+            ${CMAKE_INSTALL_PREFIX}/include
+        )
+        
+        if(xsimd_INCLUDE_DIRS)
+            set(xsimd_FOUND TRUE)
+            message(STATUS "Found xsimd manually at: ${xsimd_INCLUDE_DIRS}")
+        endif()
+    endif()
+    
+    if(NOT xsimd_FOUND)
+        message(FATAL_ERROR "xsimd not found. Please install xsimd (e.g., brew install xsimd) or disable SIMD with -DMINI_GMP_ENABLE_SIMD=OFF")
+    else()
+        message(STATUS "Found xsimd: ${xsimd_INCLUDE_DIRS}")
+    endif()
 endif()
 
 # Library target
@@ -46,13 +83,22 @@ target_include_directories(mini-gmp-plus
 if(MINI_GMP_ENABLE_SIMD)
     target_compile_definitions(mini-gmp-plus PRIVATE MINI_GMP_SIMD)
     target_compile_features(mini-gmp-plus PRIVATE cxx_std_17)
-    # Target name differs by install method: vcpkg uses xsimd::xsimd, Homebrew uses xsimd.
+    
+    # Handle different xsimd installation methods
     if(TARGET xsimd::xsimd)
+        # CONFIG mode with namespace (vcpkg, modern CMake installations)
         target_link_libraries(mini-gmp-plus PRIVATE xsimd::xsimd)
+        message(STATUS "Using xsimd::xsimd target")
     elseif(TARGET xsimd)
+        # CONFIG mode without namespace (some package managers)
         target_link_libraries(mini-gmp-plus PRIVATE xsimd)
-    else()
+        message(STATUS "Using xsimd target")
+    elseif(xsimd_INCLUDE_DIRS)
+        # Manual or module mode
         target_include_directories(mini-gmp-plus PRIVATE ${xsimd_INCLUDE_DIRS})
+        message(STATUS "Using xsimd from: ${xsimd_INCLUDE_DIRS}")
+    else()
+        message(FATAL_ERROR "xsimd found but could not determine how to link it")
     endif()
 endif()
 
@@ -104,4 +150,3 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/mini-gmp-plus-config-version.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/mini-gmp-plus
 )
-
