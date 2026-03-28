@@ -32,14 +32,34 @@ set(MINI_GMP_TESTS
    t-sqrt t-root t-powm t-logops t-bitops t-scan t-str
    t-reuse t-aorsmul t-limbs t-cong t-pprime_p t-lucm
    t-mpq_addsub t-mpq_muldiv t-mpq_muldiv_2exp t-mpq_str
-   t-mpq_double
+   t-mpq_double test_simd_compatibility
 )
 
+# Add debug test
+add_executable(debug_simd_test debug_simd_test.cpp ../test_simd_compatibility/test_nonsimd_wrappers.c)
+target_include_directories(debug_simd_test PRIVATE ../test_simd_compatibility)
+target_link_libraries(
+    debug_simd_test mini-gmp-plus PkgConfig::gmp
+)
+if(UNIX)
+   target_link_libraries(debug_simd_test m)
+endif()
+
 foreach(T ${MINI_GMP_TESTS})
-   add_executable(${T} ${T}.c)
-   target_link_libraries(
-       ${T} mini-gmp-plus mini-gmp-plus-test-lib PkgConfig::gmp
-   )
+   if(${T} STREQUAL "test_simd_compatibility")
+       # Special handling for SIMD compatibility test
+       add_executable(${T} ${T}.cpp ../test_simd_compatibility/test_nonsimd_wrappers.c)
+       target_include_directories(${T} PRIVATE ../test_simd_compatibility)
+       target_link_libraries(
+           ${T} mini-gmp-plus PkgConfig::gmp
+       )
+   else()
+       add_executable(${T} ${T}.c)
+       target_link_libraries(
+           ${T} mini-gmp-plus mini-gmp-plus-test-lib PkgConfig::gmp
+       )
+   endif()
+   
    if(UNIX)
       target_link_libraries(${T} m)
    endif()
