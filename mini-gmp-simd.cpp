@@ -206,19 +206,17 @@ mp_limb_t mpn_sub_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
     return borrow;
 }
 
-/* ── left shift (SIMD: carry flows low→high) ────────────────────────────── *
+/* ── left shift (SIMD, overlap-safe like scalar) ─────────────────────────── *
  *
  * rp[j] = (up[j] << cnt) | (up[j-1] >> tnc)
  *
- * Process batches low→high. For each W-lane batch:
- *   sl = va << cnt  (each lane shifted left by cnt bits)
- *   sr = va >> tnc  (bits spilling from lane j into lane j+1)
+ * The scalar implementation runs high→low so it also works when rp == up and
+ * when rp starts above up. We keep the same traversal order here.
  *
- * slide_left<STRIDE>(sr) shifts sr toward higher indices by one element:
- *   [0, sr[0], sr[1], ..., sr[W-2]]
- * Then inject the inter-batch carry into lane 0.
- *
- * carry_out = sr[W-1] of the last batch = up[n-1] >> tnc.
+ * For a W-lane batch starting at i:
+ *   sl = va << cnt
+ *   sr = va >> tnc
+ *   spill = [up[i-1] >> tnc, sr[0], sr[1], ..., sr[W-2]]
  */
 mp_limb_t mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
@@ -227,46 +225,44 @@ mp_limb_t mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
     assert(cnt < GMP_LIMB_BITS);
 
     unsigned int tnc = GMP_LIMB_BITS - cnt;
-    mp_limb_t carry = 0;
+    mp_limb_t retval = up[n - 1] >> tnc;
+    mp_size_t simd_start = static_cast<mp_size_t>(n) % static_cast<mp_size_t>(W);
 
-    mp_size_t i = 0;
-    for (; i + static_cast<mp_size_t>(W) <= n; i += static_cast<mp_size_t>(W)) {
-        const batch_t va = batch_t::load_unaligned(up + i);
-        const batch_t sl = va << static_cast<int>(cnt);
-        const batch_t sr = va >> static_cast<int>(tnc);
+    if (n >= static_cast<mp_size_t>(W)) {
+        for (mp_size_t i = n - static_cast<mp_size_t>(W); i >= simd_start; i -= static_cast<mp_size_t>(W)) {
+            const batch_t va = batch_t::load_unaligned(up + i);
+            const batch_t sl = va << static_cast<int>(cnt);
+            const batch_t sr = va >> static_cast<int>(tnc);
 
-        /* spill[j] = sr[j-1]: shift sr toward higher indices by one lane, inject carry at 0. */
-        batch_t spill = xsimd::slide_left<STRIDE>(sr);
-        spill = xsimd::insert(spill, carry, xsimd::index<0>{});
+            batch_t spill = xsimd::slide_left<STRIDE>(sr);
+            spill = xsimd::insert(spill, i > 0 ? (up[i - 1] >> tnc) : mp_limb_t(0), xsimd::index<0>{});
 
-        (sl | spill).store_unaligned(rp + i);
-        carry = sr.get(LAST);
+            (sl | spill).store_unaligned(rp + i);
+
+            if (i < static_cast<mp_size_t>(W))
+                break;
+        }
     }
 
-    /* Scalar tail */
-    for (; i < n; i++) {
+    for (mp_size_t i = simd_start; i-- > 0; ) {
         mp_limb_t s = up[i];
-        rp[i] = (s << cnt) | carry;
-        carry = s >> tnc;
+        rp[i] = (s << cnt) | (i > 0 ? (up[i - 1] >> tnc) : mp_limb_t(0));
     }
 
-    return carry;
+    return retval;
 }
 
-/* ── right shift (SIMD: carry flows high→low) ───────────────────────────── *
+/* ── right shift (SIMD, overlap-safe like scalar) ────────────────────────── *
  *
  * rp[j] = (up[j] >> cnt) | (up[j+1] << tnc)
  *
- * Process the scalar tail (top n%W limbs) first, then SIMD batches high→low.
- * For each W-lane batch:
- *   sr = va >> cnt  (each lane shifted right by cnt bits)
- *   sl = va << tnc  (bits spilling from lane j into lane j-1)
+ * The scalar implementation runs low→high so it also works when rp == up and
+ * when rp starts below up. We keep the same traversal order here.
  *
- * slide_right<STRIDE>(sl) shifts sl toward lower indices by one element:
- *   [sl[1], sl[2], ..., sl[W-1], 0]
- * Then inject the inter-batch carry into lane W-1.
- *
- * carry_out (return value) = sl[0] of the lowest batch = up[0] << tnc.
+ * For a W-lane batch starting at i:
+ *   sr = va >> cnt
+ *   sl = va << tnc
+ *   spill = [sl[1], sl[2], ..., sl[W-1], up[i+W] << tnc]
  */
 mp_limb_t mpn_rshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
@@ -275,33 +271,29 @@ mp_limb_t mpn_rshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
     assert(cnt < GMP_LIMB_BITS);
 
     unsigned int tnc = GMP_LIMB_BITS - cnt;
-
+    mp_limb_t retval = up[0] << tnc;
     mp_size_t simd_limit = (static_cast<mp_size_t>(n) / W) * W;
-    mp_limb_t carry = 0;
 
-    /* Scalar tail: top (n % W) limbs, processed high→low. */
-    mp_size_t j = static_cast<mp_size_t>(n);
-    while (j-- > simd_limit) {
-        rp[j] = (up[j] >> cnt) | carry;
-        carry = up[j] << tnc;
-    }
-
-    /* SIMD batches, high→low. */
-    for (mp_size_t b = simd_limit / W; b-- > 0; ) {
-        mp_size_t i = b * W;
+    for (mp_size_t i = 0; i < simd_limit; i += static_cast<mp_size_t>(W)) {
         const batch_t va = batch_t::load_unaligned(up + i);
         const batch_t sr = va >> static_cast<int>(cnt);
         const batch_t sl = va << static_cast<int>(tnc);
 
-        /* spill[j] = sl[j+1]: shift sl toward lower indices by one lane, inject carry at LAST. */
         batch_t spill = xsimd::slide_right<STRIDE>(sl);
-        spill = xsimd::insert(spill, carry, xsimd::index<LAST>{});
+        spill = xsimd::insert(
+            spill,
+            i + static_cast<mp_size_t>(W) < n ? (up[i + static_cast<mp_size_t>(W)] << tnc) : mp_limb_t(0),
+            xsimd::index<LAST>{});
 
         (sr | spill).store_unaligned(rp + i);
-        carry = sl.get(0);
     }
 
-    return carry;
+    for (mp_size_t i = simd_limit; i < n; i++) {
+        mp_limb_t s = up[i];
+        rp[i] = (s >> cnt) | (i + 1 < n ? (up[i + 1] << tnc) : mp_limb_t(0));
+    }
+
+    return retval;
 }
 
 /* ── population count (batch popcount + horizontal reduce) ───────────────── *
