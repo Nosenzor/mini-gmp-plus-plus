@@ -1,9 +1,6 @@
 # A CMakeFile for mini-gmp test programs
 # Bruno Levy, November 2025
 
-include(CTest)
-enable_testing()
-
 # GMP is needed by the test programs (that do the same computations
 #  with gmp and mini-gmp-plus and compare the results)
 # GMP is found by pkgconfig (works under Linux, Mac, and Windows)
@@ -36,20 +33,22 @@ set(MINI_GMP_TESTS
 )
 
 # Add debug test
-add_executable(debug_simd_test debug_simd_test.cpp ../test_simd_compatibility/test_nonsimd_wrappers.c)
-target_include_directories(debug_simd_test PRIVATE ../test_simd_compatibility)
+add_executable(debug_simd_test debug_simd_test.cpp test_nonsimd_wrappers.c)
+target_include_directories(debug_simd_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
     debug_simd_test mini-gmp-plus PkgConfig::gmp
 )
 if(UNIX)
    target_link_libraries(debug_simd_test m)
 endif()
+add_test(NAME debug_simd_test COMMAND debug_simd_test)
+set_tests_properties(debug_simd_test PROPERTIES TIMEOUT 30)
 
 foreach(T ${MINI_GMP_TESTS})
    if(${T} STREQUAL "test_simd_compatibility")
        # Special handling for SIMD compatibility test
-       add_executable(${T} ${T}.cpp ../test_simd_compatibility/test_nonsimd_wrappers.c)
-       target_include_directories(${T} PRIVATE ../test_simd_compatibility)
+       add_executable(${T} ${T}.cpp test_nonsimd_wrappers.c)
+       target_include_directories(${T} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
        target_link_libraries(
            ${T} mini-gmp-plus PkgConfig::gmp
        )
