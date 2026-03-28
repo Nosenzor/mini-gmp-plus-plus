@@ -7,8 +7,16 @@
  *   batch.get(i)          — extract element at runtime index i → T
  *   batch_bool.get(i)     — extract element at runtime index i → bool
  *   xsimd::insert(v, val, xsimd::index<I>{}) — return v with lane I replaced by val
- *   xsimd::slide_left<N>(v)  — shift register left  by N bytes, fill right with 0
- *   xsimd::slide_right<N>(v) — shift register right by N bytes, fill left  with 0
+ *
+ * IMPORTANT — xsimd slide semantics (verified empirically):
+ *   xsimd::slide_left<N>(v)  — shifts register bytes toward HIGHER indices
+ *                              (toward MSB); LOW end is filled with 0.
+ *                              For batch<uint64_t, neon64> with N=8:
+ *                              slide_left<8>([a, b]) → [0, a]
+ *   xsimd::slide_right<N>(v) — shifts register bytes toward LOWER indices
+ *                              (toward LSB); HIGH end is filled with 0.
+ *                              For batch<uint64_t, neon64> with N=8:
+ *                              slide_right<8>([a, b]) → [b, 0]
  */
 
 #include "mini-gmp.h"
@@ -210,7 +218,8 @@ mp_limb_t mpn_sub_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
  *
  * The per-lane spill is built entirely with xsimd operations:
  *
- *   slide_right<STRIDE>(sr)            →  [0, sr[0], …, sr[W-2]]
+ *   slide_left<STRIDE>(sr)             →  [0, sr[0], …, sr[W-2]]
+ *     (slide_left shifts toward higher indices, fills low end with 0)
  *   insert(…, prev_spill, index<0>{})  →  [prev_spill, sr[0], …, sr[W-2]]
  *
  * No inner loops, no intermediate scalar arrays.
@@ -230,9 +239,10 @@ mp_limb_t mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
         const batch_t sl   = v << static_cast<int>(cnt);
         const batch_t sr   = v >> static_cast<int>(tnc);
 
-        /* [prev_spill, sr[0], sr[1], …, sr[W-2]] */
+        /* slide_left<8>([sr[0],sr[1],...]) = [0, sr[0], sr[1], ...]
+         * After insert at index 0: [prev_spill, sr[0], sr[1], ...] */
         const batch_t spill = xsimd::insert(
-            xsimd::slide_right<STRIDE>(sr), prev_spill, xsimd::index<0>{});
+            xsimd::slide_left<STRIDE>(sr), prev_spill, xsimd::index<0>{});
 
         (sl | spill).store_unaligned(rp + i);
         prev_spill = sr.get(LAST);
@@ -251,41 +261,55 @@ mp_limb_t mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
  *
  * rp[i] = (up[i] >> cnt) | (up[i+1] << tnc)
  *
- * Processed MSB→LSB so next_high flows naturally between blocks:
+ * Processed LOW→HIGH so it is safe when rp < up (e.g. the in-place
+ * combined limb-skip + bit-shift used by mpz_tdiv_q_2exp internally).
+ * HIGH→LOW would clobber source data before it is read in that case.
  *
- *   slide_left<STRIDE>(sl)               →  [sl[1], …, sl[W-1], 0]
- *   insert(…, next_high, index<LAST>{})  →  [sl[1], …, sl[W-1], next_high]
+ * Each SIMD block at position i "peeks" at the first element of the next
+ * block to supply the cross-block carry for the top lane:
+ *
+ *   peek = (i+W < n) ? up[i+W]<<tnc : 0
+ *   slide_right<STRIDE>(sl)              →  [sl[1], …, sl[W-1], 0]
+ *   insert(…, peek, index<LAST>{})       →  [sl[1], …, sl[W-1], peek]
+ *
+ * Return value: up[0]<<tnc  (bits shifted out of the low end).
  */
 mp_limb_t mpn_rshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
     assert(n >= 1);
     assert(cnt >= 1 && cnt < static_cast<unsigned>(GMP_LIMB_BITS));
     const unsigned int tnc = static_cast<unsigned>(GMP_LIMB_BITS) - cnt;
+    const mp_limb_t    retval = up[0] << tnc;  /* bits shifted out at the low end */
 
-    mp_limb_t next_high = 0;
-    mp_size_t i = n;
+    mp_size_t i = 0;
 
-    while (i >= static_cast<mp_size_t>(W)) {
-        i -= static_cast<mp_size_t>(W);
+    for (; i + static_cast<mp_size_t>(W) <= n; i += static_cast<mp_size_t>(W)) {
         const batch_t v    = batch_t::load_unaligned(up + i);
         const batch_t sr   = v >> static_cast<int>(cnt);
         const batch_t sl   = v << static_cast<int>(tnc);
 
-        /* [sl[1], sl[2], …, sl[W-1], next_high] */
+        /* Peek at the first element of the NEXT block (safe even for rp<up
+         * because up[i+W] hasn't been written yet in LOW→HIGH order). */
+        const mp_limb_t peek = (i + static_cast<mp_size_t>(W) < n)
+                                ? (up[i + W] << tnc)
+                                : 0;
+
+        /* slide_right<STRIDE>([sl[0],sl[1],...]) = [sl[1],...,0]
+         * After insert at LAST: [sl[1],...,peek]                  */
         const batch_t spill = xsimd::insert(
-            xsimd::slide_left<STRIDE>(sl), next_high, xsimd::index<LAST>{});
+            xsimd::slide_right<STRIDE>(sl), peek, xsimd::index<LAST>{});
 
         (sr | spill).store_unaligned(rp + i);
-        next_high = sl.get(0);
     }
 
-    /* Scalar tail. */
-    while (i > 0) {
-        i--;
-        rp[i]     = (up[i] >> cnt) | next_high;
-        next_high  = up[i] << tnc;
+    /* Scalar tail — save limb before overwriting (handles rp≤up aliasing). */
+    for (; i < n; i++) {
+        const mp_limb_t limb = up[i];
+        const mp_limb_t next = (i + 1 < n) ? up[i + 1] : 0;
+        rp[i] = (limb >> cnt) | (next << tnc);
     }
-    return next_high;
+
+    return retval;
 }
 
 /* ── population count (batch popcount + horizontal reduce) ───────────────── *
