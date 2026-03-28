@@ -436,11 +436,13 @@ mpn_normalized_size (mp_srcptr xp, mp_size_t n)
   return n;
 }
 
+#ifndef MINI_GMP_SIMD
 int
 mpn_zero_p(mp_srcptr rp, mp_size_t n)
 {
   return mpn_normalized_size (rp, n) == 0;
 }
+#endif /* MINI_GMP_SIMD */
 
 #ifndef MINI_GMP_SIMD
 void
@@ -795,7 +797,30 @@ mpn_neg (mp_ptr rp, mp_srcptr up, mp_size_t n)
   return 1;
 }
 
-
+#ifndef MINI_GMP_SIMD
+void
+mpn_and_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+{
+  while (--n >= 0)
+    rp[n] = ap[n] & bp[n];
+}
+
+void
+mpn_ior_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+{
+  while (--n >= 0)
+    rp[n] = ap[n] | bp[n];
+}
+
+void
+mpn_xor_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+{
+  while (--n >= 0)
+    rp[n] = ap[n] ^ bp[n];
+}
+#endif /* MINI_GMP_SIMD */
+
+
 /* MPN division interface. */
 
 /* The 3/2 inverse is defined as
@@ -3967,6 +3992,19 @@ mpz_and (mpz_t r, const mpz_t u, const mpz_t v)
 
   uc = u->_mp_size < 0;
   vc = v->_mp_size < 0;
+
+  /* Fast path: both operands non-negative — no two's complement carry. */
+  if (uc == 0 && vc == 0)
+    {
+      rp = MPZ_REALLOC (r, vn);
+      up = u->_mp_d;
+      vp = v->_mp_d;
+      mpn_and_n (rp, up, vp, vn);
+      rn = mpn_normalized_size (rp, vn);
+      r->_mp_size = rn;
+      return;
+    }
+
   rc = uc & vc;
 
   ux = -uc;
@@ -4039,6 +4077,20 @@ mpz_ior (mpz_t r, const mpz_t u, const mpz_t v)
 
   uc = u->_mp_size < 0;
   vc = v->_mp_size < 0;
+
+  /* Fast path: both operands non-negative — no two's complement carry. */
+  if (uc == 0 && vc == 0)
+    {
+      rp = MPZ_REALLOC (r, un);
+      up = u->_mp_d;
+      vp = v->_mp_d;
+      mpn_ior_n (rp, up, vp, vn);
+      if (un > vn)
+	mpn_copyi (rp + vn, up + vn, un - vn);
+      r->_mp_size = un;
+      return;
+    }
+
   rc = uc | vc;
 
   ux = -uc;
@@ -4112,6 +4164,21 @@ mpz_xor (mpz_t r, const mpz_t u, const mpz_t v)
 
   uc = u->_mp_size < 0;
   vc = v->_mp_size < 0;
+
+  /* Fast path: both operands non-negative — no two's complement carry. */
+  if (uc == 0 && vc == 0)
+    {
+      rp = MPZ_REALLOC (r, un);
+      up = u->_mp_d;
+      vp = v->_mp_d;
+      mpn_xor_n (rp, up, vp, vn);
+      if (un > vn)
+	mpn_copyi (rp + vn, up + vn, un - vn);
+      un = mpn_normalized_size (rp, un);
+      r->_mp_size = un;
+      return;
+    }
+
   rc = uc ^ vc;
 
   ux = -uc;
@@ -4178,6 +4245,7 @@ gmp_popcount_limb (mp_limb_t x)
   return c;
 }
 
+#ifndef MINI_GMP_SIMD
 mp_bitcnt_t
 mpn_popcount (mp_srcptr p, mp_size_t n)
 {
@@ -4189,6 +4257,21 @@ mpn_popcount (mp_srcptr p, mp_size_t n)
 
   return c;
 }
+#endif /* MINI_GMP_SIMD */
+
+#ifndef MINI_GMP_SIMD
+mp_bitcnt_t
+mpn_hamdist (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+{
+  mp_size_t i;
+  mp_bitcnt_t c;
+
+  for (c = 0, i = 0; i < n; i++)
+    c += gmp_popcount_limb (ap[i] ^ bp[i]);
+
+  return c;
+}
+#endif /* MINI_GMP_SIMD */
 
 mp_bitcnt_t
 mpz_popcount (const mpz_t u)
@@ -4230,6 +4313,15 @@ mpz_hamdist (const mpz_t u, const mpz_t v)
 
   if (un < vn)
     MPN_SRCPTR_SWAP (up, un, vp, vn);
+
+  /* Fast path: both operands non-negative — no two's complement carry. */
+  if (comp == 0)
+    {
+      c = mpn_hamdist (up, vp, vn);
+      if (un > vn)
+	c += mpn_popcount (up + vn, un - vn);
+      return c;
+    }
 
   for (i = 0, c = 0; i < vn; i++)
     {

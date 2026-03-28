@@ -149,7 +149,12 @@ MINI_GMP_PLUS_API mp_bitcnt_t mpn_scan1 (mp_srcptr, mp_bitcnt_t);
 MINI_GMP_PLUS_API void mpn_com (mp_ptr, mp_srcptr, mp_size_t);
 MINI_GMP_PLUS_API mp_limb_t mpn_neg (mp_ptr, mp_srcptr, mp_size_t);
 
+MINI_GMP_PLUS_API void mpn_and_n (mp_ptr, mp_srcptr, mp_srcptr, mp_size_t);
+MINI_GMP_PLUS_API void mpn_ior_n (mp_ptr, mp_srcptr, mp_srcptr, mp_size_t);
+MINI_GMP_PLUS_API void mpn_xor_n (mp_ptr, mp_srcptr, mp_srcptr, mp_size_t);
+
 MINI_GMP_PLUS_API mp_bitcnt_t mpn_popcount (mp_srcptr, mp_size_t);
+MINI_GMP_PLUS_API mp_bitcnt_t mpn_hamdist (mp_srcptr, mp_srcptr, mp_size_t);
 
 MINI_GMP_PLUS_API mp_limb_t mpn_invert_3by2 (mp_limb_t, mp_limb_t);
 #define mpn_invert_limb(x) mpn_invert_3by2 ((x), 0)
