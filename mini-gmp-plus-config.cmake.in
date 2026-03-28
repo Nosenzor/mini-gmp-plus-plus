@@ -1,0 +1,6 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/mini-gmp-plus-targets.cmake")
+
+check_required_components(mini-gmp-plus)
+
