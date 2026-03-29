@@ -800,6 +800,37 @@ mpn_submul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
   return cl;
 }
 
+static inline mp_limb_t
+mini_gmp_mpn_mul_2x2 (mp_ptr rp, mp_srcptr up, mp_srcptr vp)
+{
+#if defined(__GNUC__)
+  const bitops64_uint128_t p00 = (bitops64_uint128_t) up[0] * vp[0];
+  const bitops64_uint128_t p01 = (bitops64_uint128_t) up[0] * vp[1];
+  const bitops64_uint128_t p10 = (bitops64_uint128_t) up[1] * vp[0];
+  const bitops64_uint128_t p11 = (bitops64_uint128_t) up[1] * vp[1];
+
+  const bitops64_uint128_t sum1 =
+    (p00 >> GMP_LIMB_BITS)
+    + (mp_limb_t) p01
+    + (mp_limb_t) p10;
+  const bitops64_uint128_t sum2 =
+    (p01 >> GMP_LIMB_BITS)
+    + (p10 >> GMP_LIMB_BITS)
+    + (mp_limb_t) p11
+    + (sum1 >> GMP_LIMB_BITS);
+
+  rp[0] = (mp_limb_t) p00;
+  rp[1] = (mp_limb_t) sum1;
+  rp[2] = (mp_limb_t) sum2;
+  rp[3] = (mp_limb_t) ((p11 >> GMP_LIMB_BITS) + (sum2 >> GMP_LIMB_BITS));
+  return rp[3];
+#else
+  rp[2] = mpn_mul_1 (rp, up, 2, vp[0]);
+  rp[3] = mpn_addmul_1 (rp + 1, up, 2, vp[1]);
+  return rp[3];
+#endif
+}
+
 mp_limb_t
 mpn_mul (mp_ptr rp, mp_srcptr up, mp_size_t un, mp_srcptr vp, mp_size_t vn)
 {
@@ -807,6 +838,9 @@ mpn_mul (mp_ptr rp, mp_srcptr up, mp_size_t un, mp_srcptr vp, mp_size_t vn)
   assert (vn >= 1);
   assert (!GMP_MPN_OVERLAP_P(rp, un + vn, up, un));
   assert (!GMP_MPN_OVERLAP_P(rp, un + vn, vp, vn));
+
+  if (un == 2 && vn == 2)
+    return mini_gmp_mpn_mul_2x2 (rp, up, vp);
 
   /* We first multiply by the low order limb. This result can be
      stored, not added, to rp. We also avoid a loop for zeroing this

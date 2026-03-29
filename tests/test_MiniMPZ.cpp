@@ -94,9 +94,12 @@ void test_utilities() {
 void test_large_numbers() {
     MiniMPZ a("123456789012345678901234567890");
     MiniMPZ b("987654321098765432109876543210");
+    MiniMPZ c("123456789012345678901234");
+    MiniMPZ d("-98765432109876543210987");
 
     MiniMPZ sum = a + b;
     assert(sum.to_string() == "1111111110111111111011111111100");
+    assert((c * d).to_string() == "-12193263113702179522618366405091408108396657958");
 
     std::cout << "Large number tests passed\n";
 }
