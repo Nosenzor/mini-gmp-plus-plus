@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cassert>
 #include <limits>
+#include <vector>
 
 void test_construction() {
     MiniMPZ a(42ul);
@@ -308,6 +309,38 @@ void test_sqrt_and_gcd_workloads() {
     std::cout << "Sqrt and gcd workload tests passed\n";
 }
 
+void test_move_semantics_with_local_buffer() {
+    const std::string first = "123456789012345678901234";
+    const std::string second = "-98765432109876543210987";
+    const std::string third = "112233445566778899001122";
+    const std::string fourth = "-99887766554433221100998";
+
+    MiniMPZ moved_source(first);
+    MiniMPZ moved_target(std::move(moved_source));
+    assert(moved_target.to_string() == first);
+    assert(moved_source.sign() == 0);
+
+    MiniMPZ assigned_source(second);
+    MiniMPZ assigned_target;
+    assigned_target = std::move(assigned_source);
+    assert(assigned_target.to_string() == second);
+    assert(assigned_source.sign() == 0);
+
+    std::vector<MiniMPZ> values;
+    values.reserve(1);
+    values.push_back(MiniMPZ(first));
+    values.push_back(MiniMPZ(second));
+    values.push_back(MiniMPZ(third));
+    values.push_back(MiniMPZ(fourth));
+
+    assert(values[0].to_string() == first);
+    assert(values[1].to_string() == second);
+    assert(values[2].to_string() == third);
+    assert(values[3].to_string() == fourth);
+
+    std::cout << "Move semantics tests passed\n";
+}
+
 int main() {
     try {
         test_construction();
@@ -322,6 +355,7 @@ int main() {
         test_edge_case_operations();
         test_geometry_workloads();
         test_sqrt_and_gcd_workloads();
+        test_move_semantics_with_local_buffer();
 
         std::cout << "\nAll tests passed!\n";
     } catch (const std::exception& e) {
