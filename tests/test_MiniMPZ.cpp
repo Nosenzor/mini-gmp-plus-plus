@@ -129,7 +129,7 @@ void test_extreme_double_values() {
     // Test negative denormalized
     MiniMPZ neg_denorm(-4.9406564584124654e-324);
     assert(neg_denorm.to_long() == 0);  // Truncates to 0
-    assert(neg_denorm.sign() == -1);
+    assert(neg_denorm.sign() == 0);
 
     // Test large negative double
     MiniMPZ large_neg(-1.7976931348623157e308);
@@ -223,7 +223,7 @@ void test_edge_case_operations() {
 
     // Test modulo with extreme values
     MiniMPZ mod_test = MiniMPZ("1000000000000000000007") % MiniMPZ(1000000007L);
-    assert(mod_test.to_long() == 1000000000);
+    assert(mod_test.to_long() == 49007);
 
     // Test alternating signs with large numbers
     MiniMPZ pos_huge("999999999999999999");

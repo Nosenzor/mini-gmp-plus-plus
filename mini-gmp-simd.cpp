@@ -20,6 +20,15 @@
 #  define GMP_LIMB_BITS (sizeof(mp_limb_t) * CHAR_BIT)
 #endif
 
+#if defined(__has_builtin)
+#  if __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll)
+#    define MINI_GMP_HAVE_CARRY_BUILTINS 1
+#  endif
+#endif
+#ifndef MINI_GMP_HAVE_CARRY_BUILTINS
+#  define MINI_GMP_HAVE_CARRY_BUILTINS 0
+#endif
+
 namespace {
     using batch_t = xsimd::batch<uint64_t>;
 
@@ -69,6 +78,18 @@ namespace {
     static inline mp_limb_t scalar_mpn_add_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
     {
         mp_size_t i;
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+        unsigned long long carry = 0;
+        for (i = 0; i < n; i++) {
+            unsigned long long carry_out;
+            rp[i] = static_cast<mp_limb_t>(__builtin_addcll(
+                static_cast<unsigned long long>(ap[i]),
+                static_cast<unsigned long long>(bp[i]),
+                carry, &carry_out));
+            carry = carry_out;
+        }
+        return static_cast<mp_limb_t>(carry);
+#else
         mp_limb_t carry;
 
         for (i = 0, carry = 0; i < n; i++) {
@@ -81,11 +102,24 @@ namespace {
             rp[i] = r;
         }
         return carry;
+#endif
     }
 
     static inline mp_limb_t scalar_mpn_sub_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
     {
         mp_size_t i;
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+        unsigned long long borrow = 0;
+        for (i = 0; i < n; i++) {
+            unsigned long long borrow_out;
+            rp[i] = static_cast<mp_limb_t>(__builtin_subcll(
+                static_cast<unsigned long long>(ap[i]),
+                static_cast<unsigned long long>(bp[i]),
+                borrow, &borrow_out));
+            borrow = borrow_out;
+        }
+        return static_cast<mp_limb_t>(borrow);
+#else
         mp_limb_t borrow;
 
         for (i = 0, borrow = 0; i < n; i++) {
@@ -97,6 +131,7 @@ namespace {
             rp[i] = a - b;
         }
         return borrow;
+#endif
     }
 
     static inline mp_limb_t scalar_mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
