@@ -5,6 +5,7 @@
 #include "../MiniMPZ.hpp"
 #include <iostream>
 #include <cassert>
+#include <limits>
 
 void test_construction() {
     MiniMPZ a(42ul);
@@ -156,24 +157,28 @@ void test_extreme_double_values() {
 
 void test_extreme_integer_values() {
     // Test maximum values representable by different types
-    MiniMPZ max_long(9223372036854775807L);  // LONG_MAX (2^63 - 1)
-    assert(max_long.to_long() == 9223372036854775807L);
+    const long long_max = (std::numeric_limits<long>::max)();
+    const long long_min = (std::numeric_limits<long>::min)();
+    const unsigned long ulong_max = (std::numeric_limits<unsigned long>::max)();
 
-    MiniMPZ min_long(-9223372036854775807L - 1);  // LONG_MIN (-2^63)
-    assert(min_long.to_long() == -9223372036854775807L - 1);
+    MiniMPZ max_long(long_max);
+    assert(max_long.to_long() == long_max);
 
-    MiniMPZ max_ulong(18446744073709551615UL);  // ULONG_MAX (2^64 - 1)
-    assert(max_ulong.to_ulong() == 18446744073709551615UL);
+    MiniMPZ min_long(long_min);
+    assert(min_long.to_long() == long_min);
+
+    MiniMPZ max_ulong(ulong_max);
+    assert(max_ulong.to_ulong() == ulong_max);
 
     // Test values beyond native integer range (from string)
-    MiniMPZ beyond_long("9223372036854775808");  // LONG_MAX + 1
+    MiniMPZ beyond_long("9223372036854775808");
     assert(beyond_long > max_long);
 
     MiniMPZ way_beyond("99999999999999999999999999999999");  // 32 nines
     assert(way_beyond.to_string() == "99999999999999999999999999999999");
 
     // Test negative values beyond native range
-    MiniMPZ neg_beyond("-9223372036854775809");  // LONG_MIN - 1
+    MiniMPZ neg_beyond("-9223372036854775809");
     assert(neg_beyond < min_long);
 
     // Test arithmetic with extreme values
