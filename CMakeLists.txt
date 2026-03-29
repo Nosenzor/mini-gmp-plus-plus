@@ -14,9 +14,16 @@
 # To disable SIMD acceleration (enabled by default, requires xsimd e.g. brew install xsimd):
 #   cmake -Bbuild -DMINI_GMP_ENABLE_SIMD=OFF
 #   cmake --build build
+#
+# To build the standalone geometry benchmark:
+#   cmake -Bbuild -DMINI_GMP_ENABLE_SIMD=ON|OFF
+#   cmake --build build --target benchmark_geometry
+#   ./build/benchmark_geometry
 
 cmake_minimum_required(VERSION 3.5...3.30)
 project(mini-gmp-plus VERSION 1.0.0 LANGUAGES C CXX)
+
+include(CTest)
 
 # Optional SIMD acceleration via xsimd
 option(MINI_GMP_ENABLE_SIMD "Enable SIMD acceleration using xsimd" ON)
@@ -106,6 +113,18 @@ endif()
 if(NOT DEFINED VCPKG_TARGET_TRIPLET AND NOT CMAKE_CROSSCOMPILING)
     add_executable(test_MiniMPZ tests/test_MiniMPZ.cpp)
     target_link_libraries(test_MiniMPZ mini-gmp-plus)
+    add_test(NAME test_MiniMPZ COMMAND test_MiniMPZ)
+    set_tests_properties(test_MiniMPZ PROPERTIES TIMEOUT 30)
+
+    add_executable(benchmark_geometry EXCLUDE_FROM_ALL benchmarks/benchmark_geometry.cpp)
+    target_include_directories(benchmark_geometry PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(benchmark_geometry mini-gmp-plus)
+    target_compile_features(benchmark_geometry PRIVATE cxx_std_11)
+    if(MINI_GMP_ENABLE_SIMD)
+        target_compile_definitions(benchmark_geometry PRIVATE MINI_GMP_PLUS_BENCHMARK_VARIANT=\"SIMD\")
+    else()
+        target_compile_definitions(benchmark_geometry PRIVATE MINI_GMP_PLUS_BENCHMARK_VARIANT=\"non-SIMD\")
+    endif()
 endif()
 
 if(MINI_GMP_PLUS_WITH_TESTS)

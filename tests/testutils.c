@@ -146,8 +146,7 @@ main (int argc, char **argv)
 
   if (total_alloc != 0)
     {
-      fprintf (stderr, "Memory leaked: %lu bytes.\n",
-	       (unsigned long) total_alloc);
+      fprintf (stderr, "Memory leaked: %zu bytes.\n", total_alloc);
       abort ();
     }
   return 0;
@@ -166,8 +165,8 @@ testhalves (int count, void (*tested_fun) (int))
   (*tested_fun) (count / 2);
   if (initial_alloc != total_alloc)
     {
-      fprintf (stderr, "First half, memory leaked: %lu bytes.\n",
-	       (unsigned long) total_alloc - initial_alloc);
+      fprintf (stderr, "First half, memory leaked: %zu bytes.\n",
+	       total_alloc - initial_alloc);
       abort ();
     }
   mp_set_memory_functions (NULL, NULL, NULL);

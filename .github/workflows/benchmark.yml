@@ -1,0 +1,276 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_size:
+        description: Number of generated inputs per benchmark case
+        required: false
+        default: "256"
+      min_time_ms:
+        description: Minimum runtime per benchmark case in milliseconds
+        required: false
+        default: "250"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: ${{ matrix.os_name }} / ${{ matrix.variant_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os_name: Linux
+            variant_name: SIMD
+            artifact_suffix: linux-simd
+            benchmark_path: build/benchmark_geometry
+            simd: ON
+          - os: ubuntu-latest
+            os_name: Linux
+            variant_name: non-SIMD
+            artifact_suffix: linux-nosimd
+            benchmark_path: build/benchmark_geometry
+            simd: OFF
+          - os: macos-latest
+            os_name: macOS
+            variant_name: SIMD
+            artifact_suffix: macos-simd
+            benchmark_path: build/benchmark_geometry
+            simd: ON
+          - os: macos-latest
+            os_name: macOS
+            variant_name: non-SIMD
+            artifact_suffix: macos-nosimd
+            benchmark_path: build/benchmark_geometry
+            simd: OFF
+          - os: windows-latest
+            os_name: Windows
+            variant_name: SIMD
+            artifact_suffix: windows-simd
+            benchmark_path: build/Release/benchmark_geometry.exe
+            simd: ON
+          - os: windows-latest
+            os_name: Windows
+            variant_name: non-SIMD
+            artifact_suffix: windows-nosimd
+            benchmark_path: build/Release/benchmark_geometry.exe
+            simd: OFF
+
+    env:
+      BUILD_DIR: build
+      BUILD_CONFIG: Release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux' && matrix.simd == 'ON'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxsimd-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS' && matrix.simd == 'ON'
+        run: |
+          brew update
+          brew install xsimd
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows' && matrix.simd == 'ON'
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          $vcpkgInstalled = Join-Path $vcpkgRoot 'installed\x64-windows'
+
+          git clone https://github.com/microsoft/vcpkg $vcpkgRoot --depth=1
+          & "$vcpkgRoot\bootstrap-vcpkg.bat"
+
+          Push-Location $vcpkgRoot
+          & "$vcpkgRoot\vcpkg.exe" install xsimd --triplet x64-windows
+          $exitCode = $LASTEXITCODE
+          Pop-Location
+
+          if ($exitCode -ne 0) {
+            Write-Error "vcpkg install failed with exit code $exitCode"
+            exit $exitCode
+          }
+
+          "CMAKE_PREFIX_PATH=$vcpkgInstalled" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure
+        run: >-
+          cmake -S . -B "${{ env.BUILD_DIR }}"
+          -DCMAKE_BUILD_TYPE="${{ env.BUILD_CONFIG }}"
+          -DMINI_GMP_ENABLE_SIMD="${{ matrix.simd }}"
+
+      - name: Build benchmark
+        run: >-
+          cmake --build "${{ env.BUILD_DIR }}"
+          --config "${{ env.BUILD_CONFIG }}"
+          --parallel
+          --target benchmark_geometry
+
+      - name: Run benchmark (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          output="benchmark-${{ matrix.artifact_suffix }}.txt"
+          "${{ matrix.benchmark_path }}" \
+            --dataset-size="${{ inputs.dataset_size }}" \
+            --min-time-ms="${{ inputs.min_time_ms }}" | tee "$output"
+
+      - name: Run benchmark (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $output = "benchmark-${{ matrix.artifact_suffix }}.txt"
+          & "${{ matrix.benchmark_path }}" "--dataset-size=${{ inputs.dataset_size }}" "--min-time-ms=${{ inputs.min_time_ms }}" | Tee-Object -FilePath $output
+
+      - name: Upload benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.artifact_suffix }}
+          path: benchmark-${{ matrix.artifact_suffix }}.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  summarize:
+    name: Benchmark summary
+    runs-on: ubuntu-latest
+    needs: benchmark
+    if: always()
+    steps:
+      - name: Download benchmark artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-*
+          path: benchmark-results
+          merge-multiple: true
+
+      - name: Build aggregate summary
+        run: |
+          python - <<'PY'
+          import csv
+          import pathlib
+
+          root = pathlib.Path("benchmark-results")
+          files = sorted(root.glob("benchmark-*.txt"))
+          if not files:
+              raise SystemExit("No benchmark artifacts were downloaded")
+
+          variant_map = {
+              "linux-simd": ("Linux", "SIMD"),
+              "linux-nosimd": ("Linux", "non-SIMD"),
+              "macos-simd": ("macOS", "SIMD"),
+              "macos-nosimd": ("macOS", "non-SIMD"),
+              "windows-simd": ("Windows", "SIMD"),
+              "windows-nosimd": ("Windows", "non-SIMD"),
+          }
+          benchmark_order = [
+              "dot-product-4d",
+              "determinant-2x2",
+              "determinant-3x3",
+              "determinant-4x4",
+              "sqrt",
+              "gcd",
+          ]
+          platform_order = ["Linux", "macOS", "Windows"]
+
+          dataset_size = None
+          min_time_ms = None
+          results = {}
+
+          for path in files:
+              suffix = path.stem.removeprefix("benchmark-")
+              platform, variant = variant_map[suffix]
+              benchmarks = {}
+              for raw_line in path.read_text().splitlines():
+                  line = raw_line.strip()
+                  if line.startswith("Dataset size"):
+                      dataset_size = line.split(":", 1)[1].strip()
+                      continue
+                  if line.startswith("Min time/case"):
+                      min_time_ms = line.split(":", 1)[1].strip()
+                      continue
+                  parts = line.split()
+                  if len(parts) == 5 and parts[0] in benchmark_order:
+                      name, ops, elapsed_ms, ns_per_op, checksum = parts
+                      benchmarks[name] = {
+                          "ops": int(ops),
+                          "elapsed_ms": float(elapsed_ms),
+                          "ns_per_op": float(ns_per_op),
+                          "checksum": checksum,
+                      }
+              results[(platform, variant)] = benchmarks
+
+          with open("benchmark-results.csv", "w", newline="") as csv_file:
+              writer = csv.writer(csv_file)
+              writer.writerow(["platform", "variant", "benchmark", "ops", "elapsed_ms", "ns_per_op", "checksum"])
+              for platform in platform_order:
+                  for variant in ("SIMD", "non-SIMD"):
+                      for benchmark in benchmark_order:
+                          row = results.get((platform, variant), {}).get(benchmark)
+                          if row:
+                              writer.writerow([
+                                  platform,
+                                  variant,
+                                  benchmark,
+                                  row["ops"],
+                                  f"{row['elapsed_ms']:.1f}",
+                                  f"{row['ns_per_op']:.1f}",
+                                  row["checksum"],
+                              ])
+
+          lines = []
+          lines.append("# Benchmark summary")
+          lines.append("")
+          if dataset_size is not None:
+              lines.append(f"- Dataset size: `{dataset_size}`")
+          if min_time_ms is not None:
+              lines.append(f"- Min time per case: `{min_time_ms}`")
+          lines.append("- Lower `ns/op` is better.")
+          lines.append("- GitHub-hosted runners are useful for broad comparisons and regressions, but they remain noisier than dedicated local machines.")
+          lines.append("")
+
+          for benchmark in benchmark_order:
+              lines.append(f"## `{benchmark}`")
+              lines.append("")
+              lines.append("| Platform | SIMD ns/op | non-SIMD ns/op | SIMD speedup |")
+              lines.append("| --- | ---: | ---: | ---: |")
+              for platform in platform_order:
+                  simd_row = results.get((platform, "SIMD"), {}).get(benchmark)
+                  nosimd_row = results.get((platform, "non-SIMD"), {}).get(benchmark)
+                  simd_ns = simd_row["ns_per_op"] if simd_row else None
+                  nosimd_ns = nosimd_row["ns_per_op"] if nosimd_row else None
+
+                  simd_text = f"{simd_ns:.1f}" if simd_ns is not None else "n/a"
+                  nosimd_text = f"{nosimd_ns:.1f}" if nosimd_ns is not None else "n/a"
+                  if simd_ns is not None and nosimd_ns is not None and simd_ns > 0.0:
+                      speedup_text = f"{nosimd_ns / simd_ns:.2f}x"
+                  else:
+                      speedup_text = "n/a"
+
+                  lines.append(f"| {platform} | {simd_text} | {nosimd_text} | {speedup_text} |")
+              lines.append("")
+
+          pathlib.Path("benchmark-summary.md").write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Publish workflow summary
+        run: cat benchmark-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload aggregate summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-summary
+          path: |
+            benchmark-summary.md
+            benchmark-results.csv
+          if-no-files-found: error
+          retention-days: 30
