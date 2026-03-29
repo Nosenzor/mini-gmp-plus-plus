@@ -18,6 +18,8 @@
 cmake_minimum_required(VERSION 3.5...3.30)
 project(mini-gmp-plus VERSION 1.0.0 LANGUAGES C CXX)
 
+include(CTest)
+
 # Optional SIMD acceleration via xsimd
 option(MINI_GMP_ENABLE_SIMD "Enable SIMD acceleration using xsimd" ON)
 if(MINI_GMP_ENABLE_SIMD)
@@ -106,6 +108,8 @@ endif()
 if(NOT DEFINED VCPKG_TARGET_TRIPLET AND NOT CMAKE_CROSSCOMPILING)
     add_executable(test_MiniMPZ tests/test_MiniMPZ.cpp)
     target_link_libraries(test_MiniMPZ mini-gmp-plus)
+    add_test(NAME test_MiniMPZ COMMAND test_MiniMPZ)
+    set_tests_properties(test_MiniMPZ PROPERTIES TIMEOUT 30)
 endif()
 
 if(MINI_GMP_PLUS_WITH_TESTS)
