@@ -3,6 +3,7 @@
 //
 // test_MiniMPZ.cpp
 #include "../MiniMPZ.hpp"
+#include "geometry_workloads.hpp"
 #include <iostream>
 #include <cassert>
 #include <limits>
@@ -253,6 +254,60 @@ void test_edge_case_operations() {
     std::cout << "Edge case operations tests passed\n";
 }
 
+void test_geometry_workloads() {
+    using namespace mini_gmp_plus_geometry;
+
+    const Vector4 lhs = {{
+        MiniMPZ(3L), MiniMPZ(-2L), MiniMPZ(5L), MiniMPZ(7L)
+    }};
+    const Vector4 rhs = {{
+        MiniMPZ(-11L), MiniMPZ(13L), MiniMPZ(17L), MiniMPZ(-19L)
+    }};
+    assert(dot_product4(lhs, rhs).to_long() == -107);
+
+    const Matrix2 matrix2 = {{
+        MiniMPZ(3L), MiniMPZ(8L),
+        MiniMPZ(4L), MiniMPZ(6L)
+    }};
+    assert(determinant2(matrix2).to_long() == -14);
+
+    const Matrix3 matrix3 = {{
+        MiniMPZ(6L), MiniMPZ(1L), MiniMPZ(1L),
+        MiniMPZ(4L), MiniMPZ(-2L), MiniMPZ(5L),
+        MiniMPZ(2L), MiniMPZ(8L), MiniMPZ(7L)
+    }};
+    assert(determinant3(matrix3).to_long() == -306);
+
+    const Matrix4 matrix4 = {{
+        MiniMPZ(3L), MiniMPZ(2L), MiniMPZ(0L), MiniMPZ(1L),
+        MiniMPZ(4L), MiniMPZ(0L), MiniMPZ(1L), MiniMPZ(2L),
+        MiniMPZ(3L), MiniMPZ(0L), MiniMPZ(2L), MiniMPZ(1L),
+        MiniMPZ(9L), MiniMPZ(2L), MiniMPZ(3L), MiniMPZ(1L)
+    }};
+    assert(determinant4(matrix4).to_long() == 24);
+
+    std::cout << "Geometry workload tests passed\n";
+}
+
+void test_sqrt_and_gcd_workloads() {
+    using namespace mini_gmp_plus_geometry;
+
+    const MiniMPZ root("12345678901234567890");
+    const MiniMPZ square = root * root;
+    assert(square.sqrt() == root);
+
+    const MiniMPZ near_square = square + MiniMPZ(123456789UL);
+    assert(near_square.sqrt() == root);
+
+    const MiniMPZ lhs("12345678901234567890");
+    const MiniMPZ rhs("98765432109876543210");
+    const MiniMPZ expected_gcd("900000000090");
+    assert(gcd_value(lhs, rhs) == expected_gcd);
+    assert(gcd_value(-lhs, rhs) == expected_gcd);
+
+    std::cout << "Sqrt and gcd workload tests passed\n";
+}
+
 int main() {
     try {
         test_construction();
@@ -265,6 +320,8 @@ int main() {
         test_extreme_double_values();
         test_extreme_integer_values();
         test_edge_case_operations();
+        test_geometry_workloads();
+        test_sqrt_and_gcd_workloads();
 
         std::cout << "\nAll tests passed!\n";
     } catch (const std::exception& e) {
