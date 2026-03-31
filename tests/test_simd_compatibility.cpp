@@ -285,6 +285,60 @@ bool test_mpn_rshift() {
     return true;
 }
 
+bool test_mpn_shift_overlap() {
+    std::vector<mp_limb_t> seed(MAX_SIZE + 1);
+    std::vector<mp_limb_t> simd(MAX_SIZE + 1);
+    std::vector<mp_limb_t> nonsimd(MAX_SIZE + 1);
+
+    for (int i = 0; i < TEST_ITERATIONS; i++) {
+        int size = 1 + rand() % (MAX_SIZE - 1);
+        int buffer_size = size + 1;
+        unsigned int shift = 1 + rand() % (sizeof(mp_limb_t) * 8 - 1);
+
+        for (int j = 0; j < buffer_size; j++) {
+            seed[j] = random_limb();
+        }
+
+        simd = seed;
+        nonsimd = seed;
+        mp_limb_t carry_simd = mpn_lshift(simd.data() + 1, simd.data(), size, shift);
+        mp_limb_t carry_nonsimd = mpn_lshift_nonsimd(nonsimd.data() + 1, nonsimd.data(), size, shift);
+        if (carry_simd != carry_nonsimd || !compare_arrays(simd.data(), nonsimd.data(), buffer_size)) {
+            std::cerr << "mpn_lshift overlap-up test failed at iteration " << i << std::endl;
+            return false;
+        }
+
+        simd = seed;
+        nonsimd = seed;
+        carry_simd = mpn_lshift(simd.data(), simd.data(), size, shift);
+        carry_nonsimd = mpn_lshift_nonsimd(nonsimd.data(), nonsimd.data(), size, shift);
+        if (carry_simd != carry_nonsimd || !compare_arrays(simd.data(), nonsimd.data(), buffer_size)) {
+            std::cerr << "mpn_lshift in-place test failed at iteration " << i << std::endl;
+            return false;
+        }
+
+        simd = seed;
+        nonsimd = seed;
+        carry_simd = mpn_rshift(simd.data(), simd.data() + 1, size, shift);
+        carry_nonsimd = mpn_rshift_nonsimd(nonsimd.data(), nonsimd.data() + 1, size, shift);
+        if (carry_simd != carry_nonsimd || !compare_arrays(simd.data(), nonsimd.data(), buffer_size)) {
+            std::cerr << "mpn_rshift overlap-down test failed at iteration " << i << std::endl;
+            return false;
+        }
+
+        simd = seed;
+        nonsimd = seed;
+        carry_simd = mpn_rshift(simd.data(), simd.data(), size, shift);
+        carry_nonsimd = mpn_rshift_nonsimd(nonsimd.data(), nonsimd.data(), size, shift);
+        if (carry_simd != carry_nonsimd || !compare_arrays(simd.data(), nonsimd.data(), buffer_size)) {
+            std::cerr << "mpn_rshift in-place test failed at iteration " << i << std::endl;
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool test_mpn_popcount() {
     std::vector<mp_limb_t> src(MAX_SIZE);
     
@@ -489,6 +543,9 @@ int main() {
     
     all_passed &= test_mpn_rshift();
     std::cout << "mpn_rshift: " << (all_passed ? "PASSED" : "FAILED") << std::endl;
+
+    all_passed &= test_mpn_shift_overlap();
+    std::cout << "mpn_shift_overlap: " << (all_passed ? "PASSED" : "FAILED") << std::endl;
     
     all_passed &= test_mpn_popcount();
     std::cout << "mpn_popcount: " << (all_passed ? "PASSED" : "FAILED") << std::endl;

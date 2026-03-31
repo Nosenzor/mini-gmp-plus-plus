@@ -51,5 +51,46 @@ As compared to `mini-gmp`, `mini-gmp-plus` has the following differences:
   [tests/CMakeLists.txt](tests/CMakeLists.txt) sees it. Note that `gmp`
   is only needed if you want to run the non-regression testsuite.
 
+Benchmarking geometry workloads
+-------------------------------
+A standalone `benchmark_geometry` target is available for native builds.
+It measures deterministic batches of:
+- 4D vector dot products
+- 2x2, 3x3 and 4x4 determinants
+- supplementary `sqrt` and `gcd` workloads
+
+Build and run it in both variants to compare arithmetic throughput on the
+same machine:
+
+```bash
+cmake -Bbuild-simd -DMINI_GMP_ENABLE_SIMD=ON
+cmake --build build-simd --target benchmark_geometry
+./build-simd/benchmark_geometry
+
+cmake -Bbuild-nosimd -DMINI_GMP_ENABLE_SIMD=OFF
+cmake --build build-nosimd --target benchmark_geometry
+./build-nosimd/benchmark_geometry
+```
+
+Useful options:
+- `--dataset-size=N` to control how many inputs are timed per benchmark case
+- `--min-time-ms=N` to force a longer run for more stable measurements
+
+Compare the reported `ns/op` numbers between SIMD and non-SIMD builds; they
+reflect arithmetic workload timing much better than CI wall-clock duration.
+
+To run the same benchmark matrix on GitHub-hosted runners, trigger the
+`Benchmarks` workflow from the Actions tab. It runs Linux, macOS, and Windows
+in both SIMD and non-SIMD modes, uploads raw per-job benchmark outputs, and
+publishes an aggregate Markdown/CSV summary artifact.
+
+The workflow accepts two manual inputs:
+- `dataset_size`
+- `min_time_ms`
+
+Those hosted-runner numbers are excellent for spotting large regressions and
+cross-platform trends, but they are still noisier than measurements collected
+on a dedicated local machine.
+
 
 _Bruno Lévy, November 2025_

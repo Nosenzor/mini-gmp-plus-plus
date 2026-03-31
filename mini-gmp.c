@@ -172,6 +172,15 @@ see https://www.gnu.org/licenses/.  */
   } while (0)
 #endif
 
+#if defined(__has_builtin)
+#  if __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll)
+#    define MINI_GMP_HAVE_CARRY_BUILTINS 1
+#  endif
+#endif
+#ifndef MINI_GMP_HAVE_CARRY_BUILTINS
+#  define MINI_GMP_HAVE_CARRY_BUILTINS 0
+#endif
+
 /* If mp_limb_t is of size smaller than int, plain u*v implies
    automatic promotion to *signed* int, and then multiply may overflow
    and cause undefined behavior. Explicitly cast to unsigned int for
@@ -406,9 +415,8 @@ mpn_copyd (mp_ptr d, mp_srcptr s, mp_size_t n)
 }
 #endif /* MINI_GMP_SIMD */
 
-#ifndef MINI_GMP_SIMD
-int
-mpn_cmp (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+static inline int
+mini_gmp_mpn_cmp_scalar (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
   while (--n >= 0)
     {
@@ -416,6 +424,133 @@ mpn_cmp (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 	return ap[n] > bp[n] ? 1 : -1;
     }
   return 0;
+}
+
+static inline mp_limb_t
+mini_gmp_mpn_add_n_scalar (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+{
+  mp_size_t i;
+
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+  unsigned long long carry = 0;
+  for (i = 0; i < n; i++)
+    {
+      unsigned long long carry_out;
+      rp[i] = (mp_limb_t) __builtin_addcll ((unsigned long long) ap[i],
+					    (unsigned long long) bp[i],
+					    carry, &carry_out);
+      carry = carry_out;
+    }
+  return (mp_limb_t) carry;
+#else
+  mp_limb_t cy;
+  for (i = 0, cy = 0; i < n; i++)
+    {
+      mp_limb_t a, b, r;
+      a = ap[i]; b = bp[i];
+      r = a + cy;
+      cy = (r < cy);
+      r += b;
+      cy += (r < b);
+      rp[i] = r;
+    }
+  return cy;
+#endif
+}
+
+static inline mp_limb_t
+mini_gmp_mpn_sub_n_scalar (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+{
+  mp_size_t i;
+
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+  unsigned long long borrow = 0;
+  for (i = 0; i < n; i++)
+    {
+      unsigned long long borrow_out;
+      rp[i] = (mp_limb_t) __builtin_subcll ((unsigned long long) ap[i],
+					    (unsigned long long) bp[i],
+					    borrow, &borrow_out);
+      borrow = borrow_out;
+    }
+  return (mp_limb_t) borrow;
+#else
+  mp_limb_t cy;
+  for (i = 0, cy = 0; i < n; i++)
+    {
+      mp_limb_t a, b;
+      a = ap[i]; b = bp[i];
+      b += cy;
+      cy = (b < cy);
+      cy += (a < b);
+      rp[i] = a - b;
+    }
+  return cy;
+#endif
+}
+
+static inline mp_limb_t
+mini_gmp_mpn_lshift_scalar (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
+{
+  mp_limb_t high_limb, low_limb;
+  unsigned int tnc;
+  mp_limb_t retval;
+
+  assert (n >= 1);
+  assert (cnt >= 1);
+  assert (cnt < GMP_LIMB_BITS);
+
+  up += n;
+  rp += n;
+
+  tnc = GMP_LIMB_BITS - cnt;
+  low_limb = *--up;
+  retval = low_limb >> tnc;
+  high_limb = (low_limb << cnt);
+
+  while (--n != 0)
+    {
+      low_limb = *--up;
+      *--rp = high_limb | (low_limb >> tnc);
+      high_limb = (low_limb << cnt);
+    }
+  *--rp = high_limb;
+
+  return retval;
+}
+
+static inline mp_limb_t
+mini_gmp_mpn_rshift_scalar (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
+{
+  mp_limb_t high_limb, low_limb;
+  unsigned int tnc;
+  mp_limb_t retval;
+
+  assert (n >= 1);
+  assert (cnt >= 1);
+  assert (cnt < GMP_LIMB_BITS);
+
+  tnc = GMP_LIMB_BITS - cnt;
+  high_limb = *up++;
+  retval = (high_limb << tnc);
+  low_limb = high_limb >> cnt;
+
+  while (--n != 0)
+    {
+      high_limb = *up++;
+      *rp++ = low_limb | (high_limb << tnc);
+      low_limb = high_limb >> cnt;
+    }
+  *rp = low_limb;
+
+  return retval;
+}
+
+#ifndef MINI_GMP_SIMD
+int
+mpn_cmp (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+{
+  return mini_gmp_mpn_cmp_scalar (ap, bp, n);
 }
 #endif /* MINI_GMP_SIMD */
 
@@ -425,7 +560,7 @@ mpn_cmp4 (mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
   if (an != bn)
     return an < bn ? -1 : 1;
   else
-    return mpn_cmp (ap, bp, an);
+    return mini_gmp_mpn_cmp_scalar (ap, bp, an);
 }
 
 static mp_size_t
@@ -459,6 +594,19 @@ mpn_add_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
   mp_size_t i;
 
   assert (n > 0);
+
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+  i = 0;
+  do
+    {
+      unsigned long long carry_out;
+      rp[i] = (mp_limb_t) __builtin_addcll ((unsigned long long) ap[i], 0ULL,
+					    (unsigned long long) b,
+					    &carry_out);
+      b = (mp_limb_t) carry_out;
+    }
+  while (++i < n);
+#else
   i = 0;
   do
     {
@@ -468,6 +616,7 @@ mpn_add_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
       rp[i] = r;
     }
   while (++i < n);
+#endif
 
   return b;
 }
@@ -476,20 +625,7 @@ mpn_add_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
 mp_limb_t
 mpn_add_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
-  mp_size_t i;
-  mp_limb_t cy;
-
-  for (i = 0, cy = 0; i < n; i++)
-    {
-      mp_limb_t a, b, r;
-      a = ap[i]; b = bp[i];
-      r = a + cy;
-      cy = (r < cy);
-      r += b;
-      cy += (r < b);
-      rp[i] = r;
-    }
-  return cy;
+  return mini_gmp_mpn_add_n_scalar (rp, ap, bp, n);
 }
 #endif /* MINI_GMP_SIMD */
 
@@ -500,6 +636,18 @@ mpn_sub_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
 
   assert (n > 0);
 
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+  i = 0;
+  do
+    {
+      unsigned long long borrow_out;
+      rp[i] = (mp_limb_t) __builtin_subcll ((unsigned long long) ap[i], 0ULL,
+					    (unsigned long long) b,
+					    &borrow_out);
+      b = (mp_limb_t) borrow_out;
+    }
+  while (++i < n);
+#else
   i = 0;
   do
     {
@@ -510,6 +658,7 @@ mpn_sub_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
       b = cy;
     }
   while (++i < n);
+#endif
 
   return b;
 }
@@ -518,19 +667,7 @@ mpn_sub_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
 mp_limb_t
 mpn_sub_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
-  mp_size_t i;
-  mp_limb_t cy;
-
-  for (i = 0, cy = 0; i < n; i++)
-    {
-      mp_limb_t a, b;
-      a = ap[i]; b = bp[i];
-      b += cy;
-      cy = (b < cy);
-      cy += (a < b);
-      rp[i] = a - b;
-    }
-  return cy;
+  return mini_gmp_mpn_sub_n_scalar (rp, ap, bp, n);
 }
 #endif /* MINI_GMP_SIMD */
 
@@ -541,7 +678,7 @@ mpn_add (mp_ptr rp, mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
 
   assert (an >= bn);
 
-  cy = mpn_add_n (rp, ap, bp, bn);
+  cy = mini_gmp_mpn_add_n_scalar (rp, ap, bp, bn);
   if (an > bn)
     cy = mpn_add_1 (rp + bn, ap + bn, an - bn, cy);
   return cy;
@@ -554,7 +691,7 @@ mpn_sub (mp_ptr rp, mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
 
   assert (an >= bn);
 
-  cy = mpn_sub_n (rp, ap, bp, bn);
+  cy = mini_gmp_mpn_sub_n_scalar (rp, ap, bp, bn);
   if (an > bn)
     cy = mpn_sub_1 (rp + bn, ap + bn, an - bn, cy);
   return cy;
@@ -563,13 +700,20 @@ mpn_sub (mp_ptr rp, mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
 mp_limb_t
 mpn_mul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
 {
-  mp_limb_t ul, cl, hpl, lpl;
+  mp_limb_t cl;
 
   assert (n >= 1);
 
   cl = 0;
   do
     {
+#if defined(__GNUC__)
+      bitops64_uint128_t product =
+	(bitops64_uint128_t) (*up++) * vl + cl;
+      *rp++ = (mp_limb_t) product;
+      cl = (mp_limb_t) (product >> GMP_LIMB_BITS);
+#else
+      mp_limb_t ul, hpl, lpl;
       ul = *up++;
       gmp_umul_ppmm (hpl, lpl, ul, vl);
 
@@ -577,6 +721,7 @@ mpn_mul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
       cl = (lpl < cl) + hpl;
 
       *rp++ = lpl;
+#endif
     }
   while (--n != 0);
 
@@ -586,13 +731,20 @@ mpn_mul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
 mp_limb_t
 mpn_addmul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
 {
-  mp_limb_t ul, cl, hpl, lpl, rl;
+  mp_limb_t cl;
 
   assert (n >= 1);
 
   cl = 0;
   do
     {
+#if defined(__GNUC__)
+      bitops64_uint128_t product =
+	(bitops64_uint128_t) (*up++) * vl + *rp + cl;
+      *rp++ = (mp_limb_t) product;
+      cl = (mp_limb_t) (product >> GMP_LIMB_BITS);
+#else
+      mp_limb_t ul, hpl, lpl, rl;
       ul = *up++;
       gmp_umul_ppmm (hpl, lpl, ul, vl);
 
@@ -603,6 +755,7 @@ mpn_addmul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
       lpl = rl + lpl;
       cl += lpl < rl;
       *rp++ = lpl;
+#endif
     }
   while (--n != 0);
 
@@ -612,13 +765,24 @@ mpn_addmul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
 mp_limb_t
 mpn_submul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
 {
-  mp_limb_t ul, cl, hpl, lpl, rl;
+  mp_limb_t cl;
 
   assert (n >= 1);
 
   cl = 0;
   do
     {
+#if defined(__GNUC__)
+      bitops64_uint128_t product =
+	(bitops64_uint128_t) (*up++) * vl + cl;
+      mp_limb_t rl = *rp;
+      mp_limb_t lpl = (mp_limb_t) product;
+      cl = (mp_limb_t) (product >> GMP_LIMB_BITS);
+      lpl = rl - lpl;
+      cl += lpl > rl;
+      *rp++ = lpl;
+#else
+      mp_limb_t ul, hpl, lpl, rl;
       ul = *up++;
       gmp_umul_ppmm (hpl, lpl, ul, vl);
 
@@ -629,10 +793,42 @@ mpn_submul_1 (mp_ptr rp, mp_srcptr up, mp_size_t n, mp_limb_t vl)
       lpl = rl - lpl;
       cl += lpl > rl;
       *rp++ = lpl;
+#endif
     }
   while (--n != 0);
 
   return cl;
+}
+
+static inline mp_limb_t
+mini_gmp_mpn_mul_2x2 (mp_ptr rp, mp_srcptr up, mp_srcptr vp)
+{
+#if defined(__GNUC__)
+  const bitops64_uint128_t p00 = (bitops64_uint128_t) up[0] * vp[0];
+  const bitops64_uint128_t p01 = (bitops64_uint128_t) up[0] * vp[1];
+  const bitops64_uint128_t p10 = (bitops64_uint128_t) up[1] * vp[0];
+  const bitops64_uint128_t p11 = (bitops64_uint128_t) up[1] * vp[1];
+
+  const bitops64_uint128_t sum1 =
+    (p00 >> GMP_LIMB_BITS)
+    + (mp_limb_t) p01
+    + (mp_limb_t) p10;
+  const bitops64_uint128_t sum2 =
+    (p01 >> GMP_LIMB_BITS)
+    + (p10 >> GMP_LIMB_BITS)
+    + (mp_limb_t) p11
+    + (sum1 >> GMP_LIMB_BITS);
+
+  rp[0] = (mp_limb_t) p00;
+  rp[1] = (mp_limb_t) sum1;
+  rp[2] = (mp_limb_t) sum2;
+  rp[3] = (mp_limb_t) ((p11 >> GMP_LIMB_BITS) + (sum2 >> GMP_LIMB_BITS));
+  return rp[3];
+#else
+  rp[2] = mpn_mul_1 (rp, up, 2, vp[0]);
+  rp[3] = mpn_addmul_1 (rp + 1, up, 2, vp[1]);
+  return rp[3];
+#endif
 }
 
 mp_limb_t
@@ -642,6 +838,9 @@ mpn_mul (mp_ptr rp, mp_srcptr up, mp_size_t un, mp_srcptr vp, mp_size_t vn)
   assert (vn >= 1);
   assert (!GMP_MPN_OVERLAP_P(rp, un + vn, up, un));
   assert (!GMP_MPN_OVERLAP_P(rp, un + vn, vp, vn));
+
+  if (un == 2 && vn == 2)
+    return mini_gmp_mpn_mul_2x2 (rp, up, vp);
 
   /* We first multiply by the low order limb. This result can be
      stored, not added, to rp. We also avoid a loop for zeroing this
@@ -676,31 +875,7 @@ mpn_sqr (mp_ptr rp, mp_srcptr ap, mp_size_t n)
 mp_limb_t
 mpn_lshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
-  mp_limb_t high_limb, low_limb;
-  unsigned int tnc;
-  mp_limb_t retval;
-
-  assert (n >= 1);
-  assert (cnt >= 1);
-  assert (cnt < GMP_LIMB_BITS);
-
-  up += n;
-  rp += n;
-
-  tnc = GMP_LIMB_BITS - cnt;
-  low_limb = *--up;
-  retval = low_limb >> tnc;
-  high_limb = (low_limb << cnt);
-
-  while (--n != 0)
-    {
-      low_limb = *--up;
-      *--rp = high_limb | (low_limb >> tnc);
-      high_limb = (low_limb << cnt);
-    }
-  *--rp = high_limb;
-
-  return retval;
+  return mini_gmp_mpn_lshift_scalar (rp, up, n, cnt);
 }
 #endif /* MINI_GMP_SIMD */
 
@@ -708,28 +883,7 @@ mpn_lshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 mp_limb_t
 mpn_rshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
-  mp_limb_t high_limb, low_limb;
-  unsigned int tnc;
-  mp_limb_t retval;
-
-  assert (n >= 1);
-  assert (cnt >= 1);
-  assert (cnt < GMP_LIMB_BITS);
-
-  tnc = GMP_LIMB_BITS - cnt;
-  high_limb = *up++;
-  retval = (high_limb << tnc);
-  low_limb = high_limb >> cnt;
-
-  while (--n != 0)
-    {
-      high_limb = *up++;
-      *rp++ = low_limb | (high_limb << tnc);
-      low_limb = high_limb >> cnt;
-    }
-  *rp = low_limb;
-
-  return retval;
+  return mini_gmp_mpn_rshift_scalar (rp, up, n, cnt);
 }
 #endif /* MINI_GMP_SIMD */
 
@@ -1028,7 +1182,7 @@ mpn_div_qr_1_preinv (mp_ptr qp, mp_srcptr np, mp_size_t nn,
 	   tn = nn;
 	   tp = gmp_alloc_limbs (tn);
         }
-      r = mpn_lshift (tp, np, nn, inv->shift);
+      r = mini_gmp_mpn_lshift_scalar (tp, np, nn, inv->shift);
       np = tp;
     }
   else
@@ -1065,7 +1219,7 @@ mpn_div_qr_2_preinv (mp_ptr qp, mp_ptr np, mp_size_t nn,
   di = inv->di;
 
   if (shift > 0)
-    r1 = mpn_lshift (np, np, nn, shift);
+    r1 = mini_gmp_mpn_lshift_scalar (np, np, nn, shift);
   else
     r1 = 0;
 
@@ -1144,7 +1298,7 @@ mpn_div_qr_pi1 (mp_ptr qp,
 
 	  if (cy != 0)
 	    {
-	      n1 += d1 + mpn_add_n (np + i, np + i, dp, dn - 1);
+	      n1 += d1 + mini_gmp_mpn_add_n_scalar (np + i, np + i, dp, dn - 1);
 	      q--;
 	    }
 	}
@@ -1180,14 +1334,14 @@ mpn_div_qr_preinv (mp_ptr qp, mp_ptr np, mp_size_t nn,
 
       shift = inv->shift;
       if (shift > 0)
-	nh = mpn_lshift (np, np, nn, shift);
+	nh = mini_gmp_mpn_lshift_scalar (np, np, nn, shift);
       else
 	nh = 0;
 
       mpn_div_qr_pi1 (qp, np, nn, nh, dp, dn, inv->di);
 
       if (shift > 0)
-	gmp_assert_nocarry (mpn_rshift (np, np, dn, shift));
+	gmp_assert_nocarry (mini_gmp_mpn_rshift_scalar (np, np, dn, shift));
     }
 }
 
@@ -1204,7 +1358,7 @@ mpn_div_qr (mp_ptr qp, mp_ptr np, mp_size_t nn, mp_srcptr dp, mp_size_t dn)
   if (dn > 2 && inv.shift > 0)
     {
       tp = gmp_alloc_limbs (dn);
-      gmp_assert_nocarry (mpn_lshift (tp, dp, dn, inv.shift));
+      gmp_assert_nocarry (mini_gmp_mpn_lshift_scalar (tp, dp, dn, inv.shift));
       dp = tp;
     }
   mpn_div_qr_preinv (qp, np, nn, dp, dn, &inv);
@@ -2013,9 +2167,9 @@ mpz_cmp (const mpz_t a, const mpz_t b)
   if (asize != bsize)
     return (asize < bsize) ? -1 : 1;
   else if (asize >= 0)
-    return mpn_cmp (a->_mp_d, b->_mp_d, asize);
+    return mini_gmp_mpn_cmp_scalar (a->_mp_d, b->_mp_d, asize);
   else
-    return mpn_cmp (b->_mp_d, a->_mp_d, -asize);
+    return mini_gmp_mpn_cmp_scalar (b->_mp_d, a->_mp_d, -asize);
 }
 
 int
@@ -2205,11 +2359,45 @@ mpz_mul_si (mpz_t r, const mpz_t u, long int v)
 void
 mpz_mul_ui (mpz_t r, const mpz_t u, unsigned long int v)
 {
-  mpz_t vv;
-  mpz_init_set_ui (vv, v);
-  mpz_mul (r, u, vv);
-  mpz_clear (vv);
-  return;
+  mp_size_t un, rn;
+  mpz_t t;
+  mp_ptr tp;
+
+  un = u->_mp_size;
+  if (un == 0 || v == 0)
+    {
+      r->_mp_size = 0;
+      return;
+    }
+
+  un = GMP_ABS (un);
+
+#ifdef MINI_GMP_PLUS_BUFF_SIZE
+  int needs_temp =
+    GMP_MPN_OVERLAP_P (r->_mp_d, r->_mp_alloc, u->_mp_d, u->_mp_alloc);
+#else
+  int needs_temp = 1;
+#endif
+
+  if (needs_temp)
+    {
+      mpz_init2 (t, (un + 1) * GMP_LIMB_BITS);
+      tp = t->_mp_d;
+    }
+  else
+    tp = MPZ_REALLOC (r, un + 1);
+
+  tp[un] = mpn_mul_1 (tp, u->_mp_d, un, (mp_limb_t) v);
+  rn = un + (tp[un] != 0);
+
+  if (needs_temp)
+    {
+      t->_mp_size = (u->_mp_size < 0) ? -rn : rn;
+      mpz_swap (r, t);
+      mpz_clear (t);
+    }
+  else
+    r->_mp_size = (u->_mp_size < 0) ? -rn : rn;
 }
 
 void
@@ -2248,6 +2436,21 @@ mpz_mul (mpz_t r, const mpz_t u, const mpz_t v)
 
   un = GMP_ABS (un);
   vn = GMP_ABS (vn);
+
+  if (un == 1 && vn == 1)
+    {
+      mp_limb_t ul = u->_mp_d[0];
+      mp_limb_t vl = v->_mp_d[0];
+      mp_ptr rp = MPZ_REALLOC (r, 2);
+      mp_limb_t high, low;
+
+      gmp_umul_ppmm (high, low, ul, vl);
+      rp[0] = low;
+      rp[1] = high;
+      rn = 1 + (high != 0);
+      r->_mp_size = sign ? -rn : rn;
+      return;
+    }
 
   if(needs_temp) {
       mpz_init2 (t, (un + vn) * GMP_LIMB_BITS);
@@ -2294,7 +2497,7 @@ mpz_mul_2exp (mpz_t r, const mpz_t u, mp_bitcnt_t bits)
   rp = MPZ_REALLOC (r, rn);
   if (shift > 0)
     {
-      mp_limb_t cy = mpn_lshift (rp + limbs, u->_mp_d, un, shift);
+      mp_limb_t cy = mini_gmp_mpn_lshift_scalar (rp + limbs, u->_mp_d, un, shift);
       rp[rn-1] = cy;
       rn -= (cy == 0);
     }
@@ -2560,7 +2763,7 @@ mpz_div_q_2exp (mpz_t q, const mpz_t u, mp_bitcnt_t bit_index,
 
       if (bit_index != 0)
 	{
-	  mpn_rshift (qp, u->_mp_d + limb_cnt, qn, bit_index);
+	  mini_gmp_mpn_rshift_scalar (qp, u->_mp_d + limb_cnt, qn, bit_index);
 	  qn -= qp[qn - 1] == 0;
 	}
       else
@@ -3281,7 +3484,7 @@ mpz_powm (mpz_t r, const mpz_t b, const mpz_t e, const mpz_t m)
       minv.shift = 0;
 
       tp = gmp_alloc_limbs (mn);
-      gmp_assert_nocarry (mpn_lshift (tp, mp, mn, shift));
+      gmp_assert_nocarry (mini_gmp_mpn_lshift_scalar (tp, mp, mn, shift));
       mp = tp;
     }
 

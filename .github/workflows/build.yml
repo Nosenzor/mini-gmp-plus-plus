@@ -1,83 +1,115 @@
-name: Build
-
-#on:
-#  workflow_dispatch
+name: CI
 
 on:
   push:
     branches:
       - main
+  pull_request:
+  workflow_dispatch:
 
 jobs:
-  SmokeTests:
-    name: ${{ matrix.name }} (${{ matrix.config }})
+  build-and-test:
+    name: ${{ matrix.os_name }} / ${{ matrix.variant_name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
-        config: [Debug, Release]
         include:
-          - os: macos-15
-            name: macOS
-          - os: ubuntu-24.04
-            name: Linux
-          - os: windows-2025
-            name: Windows
+          - os: ubuntu-latest
+            os_name: Linux
+            variant_name: SIMD
+            simd: ON
+          - os: ubuntu-latest
+            os_name: Linux
+            variant_name: non-SIMD
+            simd: OFF
+          - os: macos-latest
+            os_name: macOS
+            variant_name: SIMD
+            simd: ON
+          - os: macos-latest
+            os_name: macOS
+            variant_name: non-SIMD
+            simd: OFF
+          - os: windows-latest
+            os_name: Windows
+            variant_name: SIMD
+            simd: ON
+          - os: windows-latest
+            os_name: Windows
+            variant_name: non-SIMD
+            simd: OFF
+
+    env:
+      BUILD_DIR: build
+      BUILD_CONFIG: Release
 
     steps:
-
-      - name: Set VCPKG_ROOT and VCPKG_PATH (Windows Release)
-        if: ${{ (runner.os == 'Windows') && (matrix.config == 'Release') }}
-        run: |
-           echo "VCPKG_ROOT=${{ github.workspace }}\..\vcpkg" >> "$env:GITHUB_ENV"
-           echo "VCPKG_PATH=${{ github.workspace }}\..\vcpkg\installed\x64-windows" >> "$env:GITHUB_ENV"
-
-      - name: Set VCPKG_ROOT and VCPKG_PATH (Windows Debug)
-        if: ${{ (runner.os == 'Windows') && (matrix.config == 'Debug') }}
-        run: |
-           echo "VCPKG_ROOT=${{ github.workspace }}\..\vcpkg" >> "$env:GITHUB_ENV"
-           echo "VCPKG_PATH=${{ github.workspace }}\..\vcpkg\installed\x64-windows\debug" >> "$env:GITHUB_ENV"
-
-      - name: Set paths (Windows)
-        if: runner.os == 'Windows'
-        run: |
-           echo "$env:VCPKG_ROOT\installed\x64-windows\tools\pkgconf" >> "$env:GITHUB_PATH"
-           echo "${{ github.workspace }}\build\${{ matrix.config }}" >> "$env:GITHUB_PATH"
-           echo "$env:VCPKG_PATH\bin" >> "$env:GITHUB_PATH"
-           echo "PKG_CONFIG_PATH=$env:VCPKG_PATH\lib\pkgconfig" >> "$env:GITHUB_ENV"
-
-      - name: Check paths (Windows)
-        if: runner.os == 'Windows'
-        run: |
-           echo "PATH=$env:PATH"
-           echo "VCPKG_ROOT=$env:VCPKG_ROOT"
-           echo "VCPKG_PATH=$env:VCPKG_PATH"
-           echo "PKG_CONFIG_PATH=$env:PKG_CONFIG_PATH"
-
-      - name: Prerequisites (Windows)
-        if: runner.os == 'Windows'
-        run: |
-           cd ..
-           git clone https://github.com/Microsoft/vcpkg --depth=1
-           cd vcpkg; cmd /c bootstrap-vcpkg.bat
-           vcpkg install pkgconf
-           vcpkg install gmp
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Configure
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
-           pwd
-           cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DMINI_GMP_PLUS_WITH_TESTS=1
+          sudo apt-get update
+          packages=(libgmp-dev pkg-config)
+          if [ "${{ matrix.simd }}" = "ON" ]; then
+            packages+=(libxsimd-dev)
+          fi
+          sudo apt-get install -y "${packages[@]}"
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          packages=(gmp pkgconf)
+          if [ "${{ matrix.simd }}" = "ON" ]; then
+            packages+=(xsimd)
+          fi
+          brew install "${packages[@]}"
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          $vcpkgInstalled = Join-Path $vcpkgRoot 'installed\x64-windows'
+
+          git clone https://github.com/microsoft/vcpkg $vcpkgRoot --depth=1
+          & "$vcpkgRoot\bootstrap-vcpkg.bat"
+
+          $packages = 'gmp', 'pkgconf'
+          if ('${{ matrix.simd }}' -ieq 'ON') {
+            $packages += 'xsimd'
+          }
+
+          Push-Location $vcpkgRoot
+          & "$vcpkgRoot\vcpkg.exe" install $packages --triplet x64-windows
+          $exitCode = $LASTEXITCODE
+          Pop-Location
+
+          if ($exitCode -ne 0) {
+            Write-Error "vcpkg install failed with exit code $exitCode"
+            exit $exitCode
+          }
+
+          "$vcpkgInstalled\tools\pkgconf" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$vcpkgInstalled\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "${{ github.workspace }}\build\${{ env.BUILD_CONFIG }}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "PKG_CONFIG_PATH=$vcpkgInstalled\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CMAKE_PREFIX_PATH=$vcpkgInstalled" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure
+        run: >-
+          cmake -S . -B "${{ env.BUILD_DIR }}"
+          -DCMAKE_BUILD_TYPE="${{ env.BUILD_CONFIG }}"
+          -DMINI_GMP_ENABLE_SIMD="${{ matrix.simd }}"
+          -DMINI_GMP_PLUS_WITH_TESTS=1
 
       - name: Build
-        run: cmake --build build --config ${{ matrix.config }}
+        run: cmake --build "${{ env.BUILD_DIR }}" --config "${{ env.BUILD_CONFIG }}" --parallel
 
       - name: Test
-        run: |
-            echo $PATH
-            cd build/tests; ctest -C ${{ matrix.config }}
+        run: ctest --test-dir "${{ env.BUILD_DIR }}" --output-on-failure -C "${{ env.BUILD_CONFIG }}"

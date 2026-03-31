@@ -3,8 +3,11 @@
 //
 // test_MiniMPZ.cpp
 #include "../MiniMPZ.hpp"
+#include "geometry_workloads.hpp"
 #include <iostream>
 #include <cassert>
+#include <limits>
+#include <vector>
 
 void test_construction() {
     MiniMPZ a(42ul);
@@ -91,9 +94,12 @@ void test_utilities() {
 void test_large_numbers() {
     MiniMPZ a("123456789012345678901234567890");
     MiniMPZ b("987654321098765432109876543210");
+    MiniMPZ c("123456789012345678901234");
+    MiniMPZ d("-98765432109876543210987");
 
     MiniMPZ sum = a + b;
     assert(sum.to_string() == "1111111110111111111011111111100");
+    assert((c * d).to_string() == "-12193263113702179522618366405091408108396657958");
 
     std::cout << "Large number tests passed\n";
 }
@@ -127,7 +133,7 @@ void test_extreme_double_values() {
     // Test negative denormalized
     MiniMPZ neg_denorm(-4.9406564584124654e-324);
     assert(neg_denorm.to_long() == 0);  // Truncates to 0
-    assert(neg_denorm.sign() == -1);
+    assert(neg_denorm.sign() == 0);
 
     // Test large negative double
     MiniMPZ large_neg(-1.7976931348623157e308);
@@ -156,24 +162,28 @@ void test_extreme_double_values() {
 
 void test_extreme_integer_values() {
     // Test maximum values representable by different types
-    MiniMPZ max_long(9223372036854775807L);  // LONG_MAX (2^63 - 1)
-    assert(max_long.to_long() == 9223372036854775807L);
+    const long long_max = (std::numeric_limits<long>::max)();
+    const long long_min = (std::numeric_limits<long>::min)();
+    const unsigned long ulong_max = (std::numeric_limits<unsigned long>::max)();
 
-    MiniMPZ min_long(-9223372036854775807L - 1);  // LONG_MIN (-2^63)
-    assert(min_long.to_long() == -9223372036854775807L - 1);
+    MiniMPZ max_long(long_max);
+    assert(max_long.to_long() == long_max);
 
-    MiniMPZ max_ulong(18446744073709551615UL);  // ULONG_MAX (2^64 - 1)
-    assert(max_ulong.to_ulong() == 18446744073709551615UL);
+    MiniMPZ min_long(long_min);
+    assert(min_long.to_long() == long_min);
+
+    MiniMPZ max_ulong(ulong_max);
+    assert(max_ulong.to_ulong() == ulong_max);
 
     // Test values beyond native integer range (from string)
-    MiniMPZ beyond_long("9223372036854775808");  // LONG_MAX + 1
+    MiniMPZ beyond_long("9223372036854775808");
     assert(beyond_long > max_long);
 
     MiniMPZ way_beyond("99999999999999999999999999999999");  // 32 nines
     assert(way_beyond.to_string() == "99999999999999999999999999999999");
 
     // Test negative values beyond native range
-    MiniMPZ neg_beyond("-9223372036854775809");  // LONG_MIN - 1
+    MiniMPZ neg_beyond("-9223372036854775809");
     assert(neg_beyond < min_long);
 
     // Test arithmetic with extreme values
@@ -217,7 +227,7 @@ void test_edge_case_operations() {
 
     // Test modulo with extreme values
     MiniMPZ mod_test = MiniMPZ("1000000000000000000007") % MiniMPZ(1000000007L);
-    assert(mod_test.to_long() == 1000000000);
+    assert(mod_test.to_long() == 49007);
 
     // Test alternating signs with large numbers
     MiniMPZ pos_huge("999999999999999999");
@@ -248,6 +258,92 @@ void test_edge_case_operations() {
     std::cout << "Edge case operations tests passed\n";
 }
 
+void test_geometry_workloads() {
+    using namespace mini_gmp_plus_geometry;
+
+    const Vector4 lhs = {{
+        MiniMPZ(3L), MiniMPZ(-2L), MiniMPZ(5L), MiniMPZ(7L)
+    }};
+    const Vector4 rhs = {{
+        MiniMPZ(-11L), MiniMPZ(13L), MiniMPZ(17L), MiniMPZ(-19L)
+    }};
+    assert(dot_product4(lhs, rhs).to_long() == -107);
+
+    const Matrix2 matrix2 = {{
+        MiniMPZ(3L), MiniMPZ(8L),
+        MiniMPZ(4L), MiniMPZ(6L)
+    }};
+    assert(determinant2(matrix2).to_long() == -14);
+
+    const Matrix3 matrix3 = {{
+        MiniMPZ(6L), MiniMPZ(1L), MiniMPZ(1L),
+        MiniMPZ(4L), MiniMPZ(-2L), MiniMPZ(5L),
+        MiniMPZ(2L), MiniMPZ(8L), MiniMPZ(7L)
+    }};
+    assert(determinant3(matrix3).to_long() == -306);
+
+    const Matrix4 matrix4 = {{
+        MiniMPZ(3L), MiniMPZ(2L), MiniMPZ(0L), MiniMPZ(1L),
+        MiniMPZ(4L), MiniMPZ(0L), MiniMPZ(1L), MiniMPZ(2L),
+        MiniMPZ(3L), MiniMPZ(0L), MiniMPZ(2L), MiniMPZ(1L),
+        MiniMPZ(9L), MiniMPZ(2L), MiniMPZ(3L), MiniMPZ(1L)
+    }};
+    assert(determinant4(matrix4).to_long() == 24);
+
+    std::cout << "Geometry workload tests passed\n";
+}
+
+void test_sqrt_and_gcd_workloads() {
+    using namespace mini_gmp_plus_geometry;
+
+    const MiniMPZ root("12345678901234567890");
+    const MiniMPZ square = root * root;
+    assert(square.sqrt() == root);
+
+    const MiniMPZ near_square = square + MiniMPZ(123456789UL);
+    assert(near_square.sqrt() == root);
+
+    const MiniMPZ lhs("12345678901234567890");
+    const MiniMPZ rhs("98765432109876543210");
+    const MiniMPZ expected_gcd("900000000090");
+    assert(gcd_value(lhs, rhs) == expected_gcd);
+    assert(gcd_value(-lhs, rhs) == expected_gcd);
+
+    std::cout << "Sqrt and gcd workload tests passed\n";
+}
+
+void test_move_semantics_with_local_buffer() {
+    const std::string first = "123456789012345678901234";
+    const std::string second = "-98765432109876543210987";
+    const std::string third = "112233445566778899001122";
+    const std::string fourth = "-99887766554433221100998";
+
+    MiniMPZ moved_source(first);
+    MiniMPZ moved_target(std::move(moved_source));
+    assert(moved_target.to_string() == first);
+    assert(moved_source.sign() == 0);
+
+    MiniMPZ assigned_source(second);
+    MiniMPZ assigned_target;
+    assigned_target = std::move(assigned_source);
+    assert(assigned_target.to_string() == second);
+    assert(assigned_source.sign() == 0);
+
+    std::vector<MiniMPZ> values;
+    values.reserve(1);
+    values.push_back(MiniMPZ(first));
+    values.push_back(MiniMPZ(second));
+    values.push_back(MiniMPZ(third));
+    values.push_back(MiniMPZ(fourth));
+
+    assert(values[0].to_string() == first);
+    assert(values[1].to_string() == second);
+    assert(values[2].to_string() == third);
+    assert(values[3].to_string() == fourth);
+
+    std::cout << "Move semantics tests passed\n";
+}
+
 int main() {
     try {
         test_construction();
@@ -260,6 +356,9 @@ int main() {
         test_extreme_double_values();
         test_extreme_integer_values();
         test_edge_case_operations();
+        test_geometry_workloads();
+        test_sqrt_and_gcd_workloads();
+        test_move_semantics_with_local_buffer();
 
         std::cout << "\nAll tests passed!\n";
     } catch (const std::exception& e) {

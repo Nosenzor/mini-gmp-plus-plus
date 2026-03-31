@@ -4,13 +4,8 @@
  * Requires xsimd ≥ 14 and C++17.
  *
  * xsimd 14 element-access API used here:
- *   batch.get(i)          — extract element at runtime index i → T
- *   batch_bool.get(i)     — extract element at runtime index i → bool
- *   xsimd::insert(v, val, xsimd::index<I>{}) — return v with lane I replaced by val
- *   xsimd::slide_left<N>(v)  — shift elements toward higher indices by N bytes, fill index 0 with 0
- *                              result: [0, v[0], v[1], ..., v[W-2]]
- *   xsimd::slide_right<N>(v) — shift elements toward lower  indices by N bytes, fill last with 0
- *                              result: [v[1], v[2], ..., v[W-1], 0]
+ *   batch.get(i)      — extract element at runtime index i → T
+ *   batch_bool.get(i) — extract element at runtime index i → bool
  */
 
 #include "mini-gmp.h"
@@ -25,17 +20,21 @@
 #  define GMP_LIMB_BITS (sizeof(mp_limb_t) * CHAR_BIT)
 #endif
 
+#if defined(__has_builtin)
+#  if __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll)
+#    define MINI_GMP_HAVE_CARRY_BUILTINS 1
+#  endif
+#endif
+#ifndef MINI_GMP_HAVE_CARRY_BUILTINS
+#  define MINI_GMP_HAVE_CARRY_BUILTINS 0
+#endif
+
 namespace {
     using batch_t = xsimd::batch<uint64_t>;
 
     /* Lane count: 8 on AVX-512, 4 on AVX2, 2 on SSE2/NEON.
      * Constexpr so it can appear in template arguments. */
     static constexpr std::size_t W    = batch_t::size;
-    static constexpr std::size_t LAST = W - 1;
-
-    /* Byte distance between adjacent uint64_t lanes. */
-    static constexpr std::size_t STRIDE = sizeof(uint64_t);
-
     /* ── SWAR popcount on a batch of uint64_t ──────────────────────────── *
      *
      * xsimd 14 has no batch-level popcount, so we implement the classic
@@ -61,6 +60,131 @@ namespace {
         x = (x & m2) + ((x >> 2) & m2);
         x = (x + (x >> 4)) & m4;
         return (x * h01) >> 56;
+    }
+
+    /* These dependency-heavy primitives are hot in mpz_gcd/mpz_gcdext and
+     * benchmark dramatically slower than the original scalar loops on current
+     * AppleClang/NEON builds, so SIMD builds keep scalar implementations for
+     * them and reserve xsimd for the routines that actually benefit. */
+    static inline int scalar_mpn_cmp(mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+    {
+        while (--n >= 0) {
+            if (ap[n] != bp[n])
+                return ap[n] > bp[n] ? 1 : -1;
+        }
+        return 0;
+    }
+
+    static inline mp_limb_t scalar_mpn_add_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+    {
+        mp_size_t i;
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+        unsigned long long carry = 0;
+        for (i = 0; i < n; i++) {
+            unsigned long long carry_out;
+            rp[i] = static_cast<mp_limb_t>(__builtin_addcll(
+                static_cast<unsigned long long>(ap[i]),
+                static_cast<unsigned long long>(bp[i]),
+                carry, &carry_out));
+            carry = carry_out;
+        }
+        return static_cast<mp_limb_t>(carry);
+#else
+        mp_limb_t carry;
+
+        for (i = 0, carry = 0; i < n; i++) {
+            mp_limb_t a = ap[i];
+            mp_limb_t b = bp[i];
+            mp_limb_t r = a + carry;
+            carry = (r < carry);
+            r += b;
+            carry += (r < b);
+            rp[i] = r;
+        }
+        return carry;
+#endif
+    }
+
+    static inline mp_limb_t scalar_mpn_sub_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
+    {
+        mp_size_t i;
+#if MINI_GMP_HAVE_CARRY_BUILTINS
+        unsigned long long borrow = 0;
+        for (i = 0; i < n; i++) {
+            unsigned long long borrow_out;
+            rp[i] = static_cast<mp_limb_t>(__builtin_subcll(
+                static_cast<unsigned long long>(ap[i]),
+                static_cast<unsigned long long>(bp[i]),
+                borrow, &borrow_out));
+            borrow = borrow_out;
+        }
+        return static_cast<mp_limb_t>(borrow);
+#else
+        mp_limb_t borrow;
+
+        for (i = 0, borrow = 0; i < n; i++) {
+            mp_limb_t a = ap[i];
+            mp_limb_t b = bp[i];
+            b += borrow;
+            borrow = (b < borrow);
+            borrow += (a < b);
+            rp[i] = a - b;
+        }
+        return borrow;
+#endif
+    }
+
+    static inline mp_limb_t scalar_mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
+    {
+        mp_limb_t high_limb, low_limb;
+        unsigned int tnc;
+        mp_limb_t retval;
+
+        assert(n >= 1);
+        assert(cnt >= 1);
+        assert(cnt < GMP_LIMB_BITS);
+
+        up += n;
+        rp += n;
+
+        tnc = GMP_LIMB_BITS - cnt;
+        low_limb = *--up;
+        retval = low_limb >> tnc;
+        high_limb = (low_limb << cnt);
+
+        while (--n != 0) {
+            low_limb = *--up;
+            *--rp = high_limb | (low_limb >> tnc);
+            high_limb = (low_limb << cnt);
+        }
+        *--rp = high_limb;
+
+        return retval;
+    }
+
+    static inline mp_limb_t scalar_mpn_rshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
+    {
+        mp_limb_t high_limb, low_limb;
+        unsigned int tnc;
+        mp_limb_t retval;
+
+        assert(n >= 1);
+        assert(cnt >= 1);
+        assert(cnt < GMP_LIMB_BITS);
+
+        tnc = GMP_LIMB_BITS - cnt;
+        high_limb = *up++;
+        retval = (high_limb << tnc);
+        low_limb = high_limb >> cnt;
+
+        while (--n != 0) {
+            high_limb = *up++;
+            *rp++ = low_limb | (high_limb << tnc);
+            low_limb = high_limb >> cnt;
+        }
+        *rp = low_limb;
+
+        return retval;
     }
 } // anonymous namespace
 
@@ -95,205 +219,36 @@ void mpn_com(mp_ptr rp, mp_srcptr up, mp_size_t n)
         rp[i] = ~up[i];
 }
 
-/* ── comparison (MSB-first lexicographic) ───────────────────────────────── */
+/* ── comparison (scalar fallback) ───────────────────────────────────────── */
 
 int mpn_cmp(mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
-    mp_size_t i = n;
-
-    while (i >= static_cast<mp_size_t>(W)) {
-        i -= static_cast<mp_size_t>(W);
-        const batch_t va = batch_t::load_unaligned(ap + i);
-        const batch_t vb = batch_t::load_unaligned(bp + i);
-        if (!xsimd::all(va == vb)) {
-            for (int j = static_cast<int>(W) - 1; j >= 0; j--) {
-                const uint64_t a = va.get(static_cast<std::size_t>(j));
-                const uint64_t b = vb.get(static_cast<std::size_t>(j));
-                if (a != b)
-                    return a > b ? 1 : -1;
-            }
-        }
-    }
-
-    while (--i >= 0) {
-        if (ap[i] != bp[i])
-            return ap[i] > bp[i] ? 1 : -1;
-    }
-    return 0;
+    return scalar_mpn_cmp(ap, bp, n);
 }
 
-/* ── addition with carry (carry-select parallel prefix) ─────────────────── *
- *
- * The carry chain is the only serial dependency. We break it by processing W
- * limbs per SIMD block:
- *
- *   sum_nc[j] = a[j] + b[j]          (no carry input)
- *   gen[j]    = sum_nc[j] < a[j]     (carry generated regardless of c_in)
- *   prop[j]   = sum_nc[j] == MAX64   (carry propagates if c_in == 1)
- *
- * W-step serial prefix resolves carry into each lane:
- *   c[0] = carry_in
- *   c[j] = gen[j-1] | (prop[j-1] & c[j-1])
- *
- * carry out of block: gen[W-1] | (prop[W-1] & c[W-1])
- * result[j] = sum_nc[j] + c[j]
- *
- * The carry crosses block boundaries serially (one carry per W limbs
- * instead of one per limb): ~W× fewer serial steps on the bulk.
- */
+/* ── addition with carry (scalar fallback) ──────────────────────────────── */
 mp_limb_t mpn_add_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
-    mp_size_t i = 0;
-    mp_limb_t carry = 0;
-
-    for (; i + static_cast<mp_size_t>(W) <= n; i += static_cast<mp_size_t>(W)) {
-        const batch_t va     = batch_t::load_unaligned(ap + i);
-        const batch_t vb     = batch_t::load_unaligned(bp + i);
-        const batch_t sum_nc = va + vb;
-
-        const auto gen  = sum_nc < va;                       /* batch_bool */
-        const auto prop = sum_nc == batch_t(~uint64_t(0));  /* batch_bool */
-
-        /* W-step carry prefix; always fully unrolled by the compiler. */
-        uint64_t c[W];
-        c[0] = carry;
-        for (std::size_t j = 1; j < W; j++)
-            c[j] = (gen.get(j - 1) | (prop.get(j - 1) & static_cast<bool>(c[j - 1]))) ? 1u : 0u;
-        carry = (gen.get(W - 1) | (prop.get(W - 1) & static_cast<bool>(c[W - 1]))) ? 1u : 0u;
-
-        (sum_nc + batch_t::load_unaligned(c)).store_unaligned(rp + i);
-    }
-
-    for (; i < n; i++) {
-        const mp_limb_t a = ap[i], b = bp[i];
-        mp_limb_t r = a + carry; carry  = (r < carry);
-        r += b;                  carry += (r < b);
-        rp[i] = r;
-    }
-    return carry;
+    return scalar_mpn_add_n(rp, ap, bp, n);
 }
 
-/* ── subtraction with borrow (mirror of mpn_add_n) ─────────────────────── */
+/* ── subtraction with borrow (scalar fallback) ──────────────────────────── */
 
 mp_limb_t mpn_sub_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
-    mp_size_t i = 0;
-    mp_limb_t borrow = 0;
-
-    for (; i + static_cast<mp_size_t>(W) <= n; i += static_cast<mp_size_t>(W)) {
-        const batch_t va      = batch_t::load_unaligned(ap + i);
-        const batch_t vb      = batch_t::load_unaligned(bp + i);
-        const batch_t diff_nb = va - vb;
-
-        const auto gen  = va < vb;
-        const auto prop = va == vb;
-
-        uint64_t c[W];
-        c[0] = borrow;
-        for (std::size_t j = 1; j < W; j++)
-            c[j] = (gen.get(j - 1) | (prop.get(j - 1) & static_cast<bool>(c[j - 1]))) ? 1u : 0u;
-        borrow = (gen.get(W - 1) | (prop.get(W - 1) & static_cast<bool>(c[W - 1]))) ? 1u : 0u;
-
-        (diff_nb - batch_t::load_unaligned(c)).store_unaligned(rp + i);
-    }
-
-    for (; i < n; i++) {
-        const mp_limb_t a = ap[i], b = bp[i];
-        mp_limb_t bx = b + borrow; borrow  = (bx < borrow);
-        borrow += (a < bx);
-        rp[i] = a - bx;
-    }
-    return borrow;
+    return scalar_mpn_sub_n(rp, ap, bp, n);
 }
 
-/* ── left shift (SIMD, overlap-safe like scalar) ─────────────────────────── *
- *
- * rp[j] = (up[j] << cnt) | (up[j-1] >> tnc)
- *
- * The scalar implementation runs high→low so it also works when rp == up and
- * when rp starts above up. We keep the same traversal order here.
- *
- * For a W-lane batch starting at i:
- *   sl = va << cnt
- *   sr = va >> tnc
- *   spill = [up[i-1] >> tnc, sr[0], sr[1], ..., sr[W-2]]
- */
+/* ── left shift (scalar fallback, overlap-safe like upstream) ───────────── */
 mp_limb_t mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
-    assert(n >= 1);
-    assert(cnt >= 1);
-    assert(cnt < GMP_LIMB_BITS);
-
-    unsigned int tnc = GMP_LIMB_BITS - cnt;
-    mp_limb_t retval = up[n - 1] >> tnc;
-    mp_size_t simd_start = static_cast<mp_size_t>(n) % static_cast<mp_size_t>(W);
-
-    if (n >= static_cast<mp_size_t>(W)) {
-        for (mp_size_t i = n - static_cast<mp_size_t>(W); i >= simd_start; i -= static_cast<mp_size_t>(W)) {
-            const batch_t va = batch_t::load_unaligned(up + i);
-            const batch_t sl = va << static_cast<int>(cnt);
-            const batch_t sr = va >> static_cast<int>(tnc);
-
-            batch_t spill = xsimd::slide_left<STRIDE>(sr);
-            spill = xsimd::insert(spill, i > 0 ? (up[i - 1] >> tnc) : mp_limb_t(0), xsimd::index<0>{});
-
-            (sl | spill).store_unaligned(rp + i);
-
-            if (i < static_cast<mp_size_t>(W))
-                break;
-        }
-    }
-
-    for (mp_size_t i = simd_start; i-- > 0; ) {
-        mp_limb_t s = up[i];
-        rp[i] = (s << cnt) | (i > 0 ? (up[i - 1] >> tnc) : mp_limb_t(0));
-    }
-
-    return retval;
+    return scalar_mpn_lshift(rp, up, n, cnt);
 }
 
-/* ── right shift (SIMD, overlap-safe like scalar) ────────────────────────── *
- *
- * rp[j] = (up[j] >> cnt) | (up[j+1] << tnc)
- *
- * The scalar implementation runs low→high so it also works when rp == up and
- * when rp starts below up. We keep the same traversal order here.
- *
- * For a W-lane batch starting at i:
- *   sr = va >> cnt
- *   sl = va << tnc
- *   spill = [sl[1], sl[2], ..., sl[W-1], up[i+W] << tnc]
- */
+/* ── right shift (scalar fallback, overlap-safe like upstream) ──────────── */
 mp_limb_t mpn_rshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
-    assert(n >= 1);
-    assert(cnt >= 1);
-    assert(cnt < GMP_LIMB_BITS);
-
-    unsigned int tnc = GMP_LIMB_BITS - cnt;
-    mp_limb_t retval = up[0] << tnc;
-    mp_size_t simd_limit = (static_cast<mp_size_t>(n) / W) * W;
-
-    for (mp_size_t i = 0; i < simd_limit; i += static_cast<mp_size_t>(W)) {
-        const batch_t va = batch_t::load_unaligned(up + i);
-        const batch_t sr = va >> static_cast<int>(cnt);
-        const batch_t sl = va << static_cast<int>(tnc);
-
-        batch_t spill = xsimd::slide_right<STRIDE>(sl);
-        spill = xsimd::insert(
-            spill,
-            i + static_cast<mp_size_t>(W) < n ? (up[i + static_cast<mp_size_t>(W)] << tnc) : mp_limb_t(0),
-            xsimd::index<LAST>{});
-
-        (sr | spill).store_unaligned(rp + i);
-    }
-
-    for (mp_size_t i = simd_limit; i < n; i++) {
-        mp_limb_t s = up[i];
-        rp[i] = (s >> cnt) | (i + 1 < n ? (up[i + 1] << tnc) : mp_limb_t(0));
-    }
-
-    return retval;
+    return scalar_mpn_rshift(rp, up, n, cnt);
 }
 
 /* ── population count (batch popcount + horizontal reduce) ───────────────── *
