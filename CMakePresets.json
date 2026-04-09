@@ -13,21 +13,10 @@
       "generator": "Ninja"
     },
     {
-      "name": "vcpkg",
-      "hidden": true,
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": {
-          "type": "FILEPATH",
-          "value": "./vcpkg/scripts/buildsystems/vcpkg.cmake"
-        }
-      }
-    },
-    {
       "name": "release",
       "displayName": "Release (SIMD)",
-      "description": "Release build with SIMD acceleration via xsimd (requires vcpkg)",
-      "inherits": "vcpkg",
+      "description": "Release build with SIMD acceleration via xsimd",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "MINI_GMP_ENABLE_SIMD": "ON"
@@ -46,8 +35,8 @@
     {
       "name": "debug",
       "displayName": "Debug (SIMD)",
-      "description": "Debug build with SIMD acceleration via xsimd (requires vcpkg)",
-      "inherits": "vcpkg",
+      "description": "Debug build with SIMD acceleration via xsimd",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "MINI_GMP_ENABLE_SIMD": "ON"
@@ -67,7 +56,7 @@
       "name": "release-tests",
       "displayName": "Release (SIMD, with C regression tests)",
       "description": "Release + SIMD + C regression test suite (requires system GMP via pkg-config)",
-      "inherits": "vcpkg",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "MINI_GMP_ENABLE_SIMD": "ON",
@@ -89,7 +78,7 @@
       "name": "asan",
       "displayName": "ASan (SIMD)",
       "description": "RelWithDebInfo build with AddressSanitizer",
-      "inherits": "vcpkg",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "MINI_GMP_ENABLE_SIMD": "ON",
@@ -103,7 +92,7 @@
       "name": "ubsan",
       "displayName": "UBSan (SIMD)",
       "description": "RelWithDebInfo build with UndefinedBehaviorSanitizer",
-      "inherits": "vcpkg",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "MINI_GMP_ENABLE_SIMD": "ON",
@@ -117,7 +106,7 @@
       "name": "asan-ubsan",
       "displayName": "ASan + UBSan (SIMD)",
       "description": "RelWithDebInfo build with AddressSanitizer + UndefinedBehaviorSanitizer",
-      "inherits": "vcpkg",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "MINI_GMP_ENABLE_SIMD": "ON",
@@ -131,7 +120,7 @@
       "name": "tsan",
       "displayName": "TSan (SIMD)",
       "description": "RelWithDebInfo build with ThreadSanitizer (mutually exclusive with ASan/LSan)",
-      "inherits": "vcpkg",
+      "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "MINI_GMP_ENABLE_SIMD": "ON",
