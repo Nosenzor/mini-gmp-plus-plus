@@ -8,41 +8,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
-    name: ${{ matrix.os_name }} / ${{ matrix.variant_name }}
+  release:
+    name: release / ${{ matrix.os_name }} / ${{ matrix.preset }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            os_name: Linux
-            variant_name: SIMD
-            simd: ON
-          - os: ubuntu-latest
-            os_name: Linux
-            variant_name: non-SIMD
-            simd: OFF
-          - os: macos-latest
-            os_name: macOS
-            variant_name: SIMD
-            simd: ON
-          - os: macos-latest
-            os_name: macOS
-            variant_name: non-SIMD
-            simd: OFF
-          - os: windows-latest
-            os_name: Windows
-            variant_name: SIMD
-            simd: ON
-          - os: windows-latest
-            os_name: Windows
-            variant_name: non-SIMD
-            simd: OFF
-
-    env:
-      BUILD_DIR: build
-      BUILD_CONFIG: Release
+          - { os: ubuntu-latest,  os_name: Linux,   preset: release-tests,        simd: ON  }
+          - { os: ubuntu-latest,  os_name: Linux,   preset: release-nosimd-tests, simd: OFF }
+          - { os: macos-latest,   os_name: macOS,   preset: release-tests,        simd: ON  }
+          - { os: macos-latest,   os_name: macOS,   preset: release-nosimd-tests, simd: OFF }
+          - { os: windows-latest, os_name: Windows, preset: release-tests,        simd: ON  }
+          - { os: windows-latest, os_name: Windows, preset: release-nosimd-tests, simd: OFF }
 
     steps:
       - name: Checkout repository
@@ -55,9 +33,7 @@ jobs:
         run: |
           sudo apt-get update
           packages=(libgmp-dev pkg-config)
-          if [ "${{ matrix.simd }}" = "ON" ]; then
-            packages+=(libxsimd-dev)
-          fi
+          if [ "${{ matrix.simd }}" = "ON" ]; then packages+=(libxsimd-dev); fi
           sudo apt-get install -y "${packages[@]}"
 
       - name: Install dependencies (macOS)
@@ -65,9 +41,7 @@ jobs:
         run: |
           brew update
           packages=(gmp pkgconf)
-          if [ "${{ matrix.simd }}" = "ON" ]; then
-            packages+=(xsimd)
-          fi
+          if [ "${{ matrix.simd }}" = "ON" ]; then packages+=(xsimd); fi
           brew install "${packages[@]}"
 
       - name: Install dependencies (Windows)
@@ -96,20 +70,63 @@ jobs:
           }
 
           "$vcpkgInstalled\tools\pkgconf" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "$vcpkgInstalled\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "${{ github.workspace }}\build\${{ env.BUILD_CONFIG }}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$vcpkgInstalled\bin"           | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "PKG_CONFIG_PATH=$vcpkgInstalled\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CMAKE_PREFIX_PATH=$vcpkgInstalled" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CMAKE_PREFIX_PATH=$vcpkgInstalled"             | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Setup MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure
-        run: >-
-          cmake -S . -B "${{ env.BUILD_DIR }}"
-          -DCMAKE_BUILD_TYPE="${{ env.BUILD_CONFIG }}"
-          -DMINI_GMP_ENABLE_SIMD="${{ matrix.simd }}"
-          -DMINI_GMP_PLUS_WITH_TESTS=1
+        run: cmake --preset ${{ matrix.preset }}
 
       - name: Build
-        run: cmake --build "${{ env.BUILD_DIR }}" --config "${{ env.BUILD_CONFIG }}" --parallel
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Add build output to PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "${{ github.workspace }}\builds\${{ matrix.preset }}" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Test
-        run: ctest --test-dir "${{ env.BUILD_DIR }}" --output-on-failure -C "${{ env.BUILD_CONFIG }}"
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+  sanitize:
+    name: sanitize / ${{ matrix.preset }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { preset: asan,              simd: ON  }
+          - { preset: ubsan,             simd: ON  }
+          - { preset: asan-ubsan,        simd: ON  }
+          - { preset: tsan,              simd: ON  }
+          - { preset: asan-nosimd,       simd: OFF }
+          - { preset: ubsan-nosimd,      simd: OFF }
+          - { preset: asan-ubsan-nosimd, simd: OFF }
+          - { preset: tsan-nosimd,       simd: OFF }
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          packages=(libgmp-dev pkg-config)
+          if [ "${{ matrix.simd }}" = "ON" ]; then packages+=(libxsimd-dev); fi
+          sudo apt-get install -y "${packages[@]}"
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DMINI_GMP_PLUS_WITH_TESTS=1
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure

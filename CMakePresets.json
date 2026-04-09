@@ -131,6 +131,62 @@
       }
     },
     {
+      "name": "asan-nosimd",
+      "displayName": "ASan (no SIMD)",
+      "description": "RelWithDebInfo build with AddressSanitizer, no SIMD",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "MINI_GMP_ENABLE_SIMD": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address -fno-omit-frame-pointer -g",
+        "CMAKE_C_FLAGS": "-fsanitize=address -fno-omit-frame-pointer -g",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address"
+      }
+    },
+    {
+      "name": "ubsan-nosimd",
+      "displayName": "UBSan (no SIMD)",
+      "description": "RelWithDebInfo build with UndefinedBehaviorSanitizer, no SIMD",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "MINI_GMP_ENABLE_SIMD": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -g",
+        "CMAKE_C_FLAGS": "-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -g",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=undefined"
+      }
+    },
+    {
+      "name": "asan-ubsan-nosimd",
+      "displayName": "ASan + UBSan (no SIMD)",
+      "description": "RelWithDebInfo build with AddressSanitizer + UndefinedBehaviorSanitizer, no SIMD",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "MINI_GMP_ENABLE_SIMD": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -g",
+        "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -g",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    },
+    {
+      "name": "tsan-nosimd",
+      "displayName": "TSan (no SIMD)",
+      "description": "RelWithDebInfo build with ThreadSanitizer, no SIMD (mutually exclusive with ASan/LSan)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "MINI_GMP_ENABLE_SIMD": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer -g",
+        "CMAKE_C_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer -g",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread"
+      }
+    },
+    {
       "name": "msbuild-vcpkg",
       "displayName": "MSBuild (Visual Studio 2022 + vcpkg)",
       "description": "Multi-config build for Windows with vcpkg toolchain",
@@ -200,6 +256,26 @@
       "displayName": "Build TSan (SIMD)"
     },
     {
+      "name": "asan-nosimd",
+      "configurePreset": "asan-nosimd",
+      "displayName": "Build ASan (no SIMD)"
+    },
+    {
+      "name": "ubsan-nosimd",
+      "configurePreset": "ubsan-nosimd",
+      "displayName": "Build UBSan (no SIMD)"
+    },
+    {
+      "name": "asan-ubsan-nosimd",
+      "configurePreset": "asan-ubsan-nosimd",
+      "displayName": "Build ASan + UBSan (no SIMD)"
+    },
+    {
+      "name": "tsan-nosimd",
+      "configurePreset": "tsan-nosimd",
+      "displayName": "Build TSan (no SIMD)"
+    },
+    {
       "name": "msbuild-vcpkg",
       "configurePreset": "msbuild-vcpkg",
       "displayName": "Build MSBuild (Visual Studio 2022)"
@@ -237,6 +313,22 @@
     {
       "name": "tsan",
       "configurePreset": "tsan"
+    },
+    {
+      "name": "asan-nosimd",
+      "configurePreset": "asan-nosimd"
+    },
+    {
+      "name": "ubsan-nosimd",
+      "configurePreset": "ubsan-nosimd"
+    },
+    {
+      "name": "asan-ubsan-nosimd",
+      "configurePreset": "asan-ubsan-nosimd"
+    },
+    {
+      "name": "tsan-nosimd",
+      "configurePreset": "tsan-nosimd"
     }
   ]
 }
