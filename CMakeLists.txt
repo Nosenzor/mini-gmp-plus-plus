@@ -1,6 +1,25 @@
 # A CMakeFile for mini-gmp
 # Bruno Levy, November 2025
 #
+# === Using CMake presets (CMake >= 3.21, requires Ninja) ===
+#
+# Configure:
+#   cmake --preset release              # Release, SIMD on (needs vcpkg/xsimd)
+#   cmake --preset release-nosimd      # Release, SIMD off
+#   cmake --preset debug               # Debug, SIMD on
+#   cmake --preset debug-nosimd        # Debug, SIMD off
+#   cmake --preset release-tests       # Release + SIMD + C regression tests
+#   cmake --preset release-nosimd-tests # Release, no SIMD + C regression tests
+#   cmake --preset asan                # ASan
+#   cmake --preset ubsan               # UBSan
+#   cmake --preset asan-ubsan          # ASan + UBSan
+#   cmake --preset tsan                # TSan
+#
+# Build:   cmake --build --preset <name>
+# Test:    ctest --preset <name>
+#
+# === Manual (no preset, legacy) ===
+#
 # To compile:
 #   cmake -Bbuild
 #   cmake --build build
@@ -8,8 +27,7 @@
 # To compile and run tests: (needs gmp, see comments in tests/CMakeLists.txt)
 #   cmake -Bbuild -DMINI_GMP_PLUS_WITH_TESTS=1
 #   cmake --build build
-#   cd build/tests; ctest -C config
-#     where config is one of Release, Debug
+#   ctest --test-dir build --output-on-failure
 #
 # To disable SIMD acceleration (enabled by default, requires xsimd e.g. brew install xsimd):
 #   cmake -Bbuild -DMINI_GMP_ENABLE_SIMD=OFF
