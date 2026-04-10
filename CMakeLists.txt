@@ -127,6 +127,12 @@ if(MINI_GMP_ENABLE_SIMD)
     endif()
 endif()
 
+# On GCC/Clang, disable PLT-based symbol interposition within the DSO so the
+# compiler can generate direct intra-library calls, reducing overhead on Linux.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(mini-gmp-plus PRIVATE -fno-semantic-interposition)
+endif()
+
 # Add C++ wrapper test executable (only if not being built by vcpkg)
 if(NOT DEFINED VCPKG_TARGET_TRIPLET AND NOT CMAKE_CROSSCOMPILING)
     add_executable(test_MiniMPZ tests/test_MiniMPZ.cpp)

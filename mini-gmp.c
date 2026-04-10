@@ -2529,24 +2529,120 @@ mpz_submul_ui (mpz_t r, const mpz_t u, unsigned long int v)
   mpz_clear (t);
 }
 
+#ifdef MINI_GMP_PLUS_BUFF_SIZE
+/* Fast fused multiply-accumulate for small operands, avoiding a temporary
+ * mpz_t for the product.  Computes r += (add ? +1 : -1) * u * v.
+ *
+ * Applies when the product fits in MINI_GMP_PLUS_BUFF_SIZE limbs and r's
+ * limb storage does not alias u's or v's.
+ *
+ * Returns 1 if handled (caller should return), 0 if the slow path is needed.
+ */
+static int
+mpz_aorsmul_fast (mpz_t r, const mpz_t u, const mpz_t v, int add)
+{
+  mp_size_t un = GMP_ABS (u->_mp_size);
+  mp_size_t vn = GMP_ABS (v->_mp_size);
+
+  if (un == 0 || vn == 0)
+    return 1; /* product is zero: no-op */
+
+  if (un + vn > MINI_GMP_PLUS_BUFF_SIZE)
+    return 0;
+
+  if (GMP_MPN_OVERLAP_P (r->_mp_d, r->_mp_alloc, u->_mp_d, un) ||
+      GMP_MPN_OVERLAP_P (r->_mp_d, r->_mp_alloc, v->_mp_d, vn))
+    return 0;
+
+  /* Compute |u * v| into a stack-allocated buffer. */
+  mp_limb_t prod[MINI_GMP_PLUS_BUFF_SIZE];
+  mp_size_t pn = un + vn;
+  if (un >= vn)
+    mpn_mul (prod, u->_mp_d, un, v->_mp_d, vn);
+  else
+    mpn_mul (prod, v->_mp_d, vn, u->_mp_d, un);
+  pn -= (prod[pn - 1] == 0);
+
+  /* Sign of the effective term being added to r:
+   *   addmul: sign(u*v)   — negative iff exactly one of u, v is negative
+   *   submul: sign(-u*v)  — flipped */
+  int eff_neg = ((u->_mp_size ^ v->_mp_size) < 0) ^ (!add);
+
+  mp_size_t rabs = GMP_ABS (r->_mp_size);
+  int r_neg = (r->_mp_size < 0);
+
+  if (r_neg == eff_neg || rabs == 0)
+    {
+      /* Same sign (or r == 0): add magnitudes, result keeps that sign. */
+      mp_size_t dn = GMP_MAX (rabs, pn);
+      mp_ptr rp = MPZ_REALLOC (r, dn + 1);
+      mp_limb_t cy;
+      if (rabs >= pn)
+        cy = mpn_add (rp, rp, rabs, prod, pn);
+      else
+        cy = mpn_add (rp, prod, pn, rp, rabs);
+      rp[dn] = cy;
+      mp_size_t new_size = dn + cy;
+      r->_mp_size = (rabs > 0 ? r_neg : eff_neg) ? -(mp_size_t) new_size
+                                                  : (mp_size_t) new_size;
+    }
+  else
+    {
+      /* Different signs: subtract smaller magnitude from larger. */
+      int cmp = mpn_cmp4 (r->_mp_d, rabs, prod, pn);
+      if (cmp > 0)
+        {
+          /* |r| > |product|: result sign follows r. */
+          mp_ptr rp = MPZ_REALLOC (r, rabs);
+          gmp_assert_nocarry (mpn_sub (rp, rp, rabs, prod, pn));
+          mp_size_t new_size = mpn_normalized_size (rp, rabs);
+          r->_mp_size = r_neg ? -(mp_size_t) new_size : (mp_size_t) new_size;
+        }
+      else if (cmp < 0)
+        {
+          /* |product| > |r|: result sign follows the effective product. */
+          mp_ptr rp = MPZ_REALLOC (r, pn);
+          gmp_assert_nocarry (mpn_sub (rp, prod, pn, rp, rabs));
+          mp_size_t new_size = mpn_normalized_size (rp, pn);
+          r->_mp_size = eff_neg ? -(mp_size_t) new_size : (mp_size_t) new_size;
+        }
+      else
+        r->_mp_size = 0;
+    }
+  return 1;
+}
+#endif /* MINI_GMP_PLUS_BUFF_SIZE */
+
 void
 mpz_addmul (mpz_t r, const mpz_t u, const mpz_t v)
 {
-  mpz_t t;
-  mpz_init (t);
-  mpz_mul (t, u, v);
-  mpz_add (r, r, t);
-  mpz_clear (t);
+#ifdef MINI_GMP_PLUS_BUFF_SIZE
+  if (mpz_aorsmul_fast (r, u, v, 1))
+    return;
+#endif
+  {
+    mpz_t t;
+    mpz_init (t);
+    mpz_mul (t, u, v);
+    mpz_add (r, r, t);
+    mpz_clear (t);
+  }
 }
 
 void
 mpz_submul (mpz_t r, const mpz_t u, const mpz_t v)
 {
-  mpz_t t;
-  mpz_init (t);
-  mpz_mul (t, u, v);
-  mpz_sub (r, r, t);
-  mpz_clear (t);
+#ifdef MINI_GMP_PLUS_BUFF_SIZE
+  if (mpz_aorsmul_fast (r, u, v, 0))
+    return;
+#endif
+  {
+    mpz_t t;
+    mpz_init (t);
+    mpz_mul (t, u, v);
+    mpz_sub (r, r, t);
+    mpz_clear (t);
+  }
 }
 
 

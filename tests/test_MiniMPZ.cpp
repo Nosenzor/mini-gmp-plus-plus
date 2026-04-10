@@ -312,6 +312,69 @@ void test_sqrt_and_gcd_workloads() {
     std::cout << "Sqrt and gcd workload tests passed\n";
 }
 
+/* Tests for mpz_addmul / mpz_submul fast path (mpz_aorsmul_fast).
+ * Covers all sign combinations for r, u, v including the case where the
+ * result crosses zero, and multi-limb operands that fill the stack buffer. */
+void test_addmul_submul_fast_path() {
+    auto addmul = [](MiniMPZ r, const MiniMPZ& u, const MiniMPZ& v) {
+        mpz_addmul(r.get_mpz(), u.get_mpz(), v.get_mpz());
+        return r;
+    };
+    auto submul = [](MiniMPZ r, const MiniMPZ& u, const MiniMPZ& v) {
+        mpz_submul(r.get_mpz(), u.get_mpz(), v.get_mpz());
+        return r;
+    };
+
+    /* Basic: r=0, u>0, v>0 */
+    assert(addmul(MiniMPZ(0L), MiniMPZ(3L), MiniMPZ(4L)).to_long() == 12);
+    assert(submul(MiniMPZ(0L), MiniMPZ(3L), MiniMPZ(4L)).to_long() == -12);
+
+    /* r positive, same sign as product */
+    assert(addmul(MiniMPZ(10L), MiniMPZ(3L), MiniMPZ(4L)).to_long() == 22);
+    /* r positive, product negative → different signs, |r|>|prod| */
+    assert(addmul(MiniMPZ(100L), MiniMPZ(-3L), MiniMPZ(4L)).to_long() == 88);
+    /* r positive, product negative → different signs, |prod|>|r| (sign flip) */
+    assert(addmul(MiniMPZ(5L), MiniMPZ(-3L), MiniMPZ(4L)).to_long() == -7);
+    /* r positive, product negative → exact cancellation */
+    assert(addmul(MiniMPZ(12L), MiniMPZ(-3L), MiniMPZ(4L)).to_long() == 0);
+
+    /* r negative, product positive (different signs) */
+    assert(addmul(MiniMPZ(-10L), MiniMPZ(3L), MiniMPZ(4L)).to_long() == 2);
+    assert(addmul(MiniMPZ(-100L), MiniMPZ(3L), MiniMPZ(4L)).to_long() == -88);
+
+    /* r negative, product negative (same signs) */
+    assert(addmul(MiniMPZ(-10L), MiniMPZ(-3L), MiniMPZ(4L)).to_long() == -22);
+
+    /* submul sign combinations */
+    assert(submul(MiniMPZ(10L), MiniMPZ(3L), MiniMPZ(4L)).to_long() == -2);
+    assert(submul(MiniMPZ(100L), MiniMPZ(3L), MiniMPZ(4L)).to_long() == 88);
+    assert(submul(MiniMPZ(-10L), MiniMPZ(-3L), MiniMPZ(4L)).to_long() == 2);
+    assert(submul(MiniMPZ(-100L), MiniMPZ(-3L), MiniMPZ(4L)).to_long() == -88);
+
+    /* Zero operands */
+    assert(addmul(MiniMPZ(7L), MiniMPZ(0L), MiniMPZ(4L)).to_long() == 7);
+    assert(addmul(MiniMPZ(7L), MiniMPZ(3L), MiniMPZ(0L)).to_long() == 7);
+
+    /* Multi-limb operands (2×2 → 4-limb product, fits in BUFF_SIZE=5) */
+    MiniMPZ big_pos("99999999999999999999");   /* ~80-bit, 2 limbs */
+    MiniMPZ big_neg("-99999999999999999999");
+    MiniMPZ expected_add = big_pos * big_pos;
+    MiniMPZ r_zero(0L);
+    mpz_addmul(r_zero.get_mpz(), big_pos.get_mpz(), big_pos.get_mpz());
+    assert(r_zero == expected_add);
+
+    MiniMPZ r_neg_start(0L);
+    mpz_addmul(r_neg_start.get_mpz(), big_pos.get_mpz(), big_neg.get_mpz());
+    assert(r_neg_start == -expected_add);
+
+    /* submul equivalent */
+    MiniMPZ r_sub(0L);
+    mpz_submul(r_sub.get_mpz(), big_pos.get_mpz(), big_pos.get_mpz());
+    assert(r_sub == -expected_add);
+
+    std::cout << "addmul/submul fast path tests passed\n";
+}
+
 void test_move_semantics_with_local_buffer() {
     const std::string first = "123456789012345678901234";
     const std::string second = "-98765432109876543210987";
@@ -358,6 +421,7 @@ int main() {
         test_edge_case_operations();
         test_geometry_workloads();
         test_sqrt_and_gcd_workloads();
+        test_addmul_submul_fast_path();
         test_move_semantics_with_local_buffer();
 
         std::cout << "\nAll tests passed!\n";
