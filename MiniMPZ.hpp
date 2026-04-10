@@ -42,6 +42,11 @@ public:
     // Move constructor
     MiniMPZ(MiniMPZ&& other) noexcept {
         *value_ = *other.value_;
+#ifdef MINI_GMP_PLUS_BUFF_SIZE
+        if (other.value_->_mp_d == other.value_->_mp_buff) {
+            value_->_mp_d = value_->_mp_buff;
+        }
+#endif
         mpz_init(other.value_);
     }
 
@@ -61,6 +66,11 @@ public:
         if (this != &other) {
             mpz_clear(value_);
             *value_ = *other.value_;
+#ifdef MINI_GMP_PLUS_BUFF_SIZE
+            if (other.value_->_mp_d == other.value_->_mp_buff) {
+                value_->_mp_d = value_->_mp_buff;
+            }
+#endif
             mpz_init(other.value_);
         }
         return *this;
@@ -204,4 +214,3 @@ public:
 };
 
 #endif // MINIMPZ_HPP
-

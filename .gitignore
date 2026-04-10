@@ -58,6 +58,7 @@ dkms.conf
 cmake-build-*/
 build/
 build-*/
+builds/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
