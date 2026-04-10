@@ -194,7 +194,8 @@ extern "C" {
 
 void mpn_copyi(mp_ptr d, mp_srcptr s, mp_size_t n)
 {
-    std::memcpy(d, s, static_cast<std::size_t>(n) * sizeof(mp_limb_t));
+    /* memmove handles the d==s (self-copy) case that arises in mpz_set(r,r). */
+    std::memmove(d, s, static_cast<std::size_t>(n) * sizeof(mp_limb_t));
 }
 
 void mpn_copyd(mp_ptr d, mp_srcptr s, mp_size_t n)
