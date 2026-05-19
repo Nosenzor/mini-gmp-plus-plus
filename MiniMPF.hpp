@@ -161,17 +161,13 @@ public:
             m_Mantisse += other.m_Mantisse;
         } else if (m_Exponant < other.m_Exponant) {
             MiniMPZ scaled_other = other.m_Mantisse;
-            const int exp_diff = other.m_Exponant - m_Exponant;
-            for (int i = 0; i < exp_diff; ++i) {
-                scaled_other *= MiniMPZ(2L);
-            }
+            const mp_bitcnt_t exp_diff = static_cast<mp_bitcnt_t>(other.m_Exponant - m_Exponant);
+            mpz_mul_2exp(scaled_other.get_mpz(), scaled_other.get_mpz(), exp_diff);
             m_Mantisse += scaled_other;
         } else {
             MiniMPZ scaled_self = m_Mantisse;
-            const int exp_diff = m_Exponant - other.m_Exponant;
-            for (int i = 0; i < exp_diff; ++i) {
-                scaled_self *= MiniMPZ(2L);
-            }
+            const mp_bitcnt_t exp_diff = static_cast<mp_bitcnt_t>(m_Exponant - other.m_Exponant);
+            mpz_mul_2exp(scaled_self.get_mpz(), scaled_self.get_mpz(), exp_diff);
             m_Mantisse = scaled_self + other.m_Mantisse;
             m_Exponant = other.m_Exponant;
         }
@@ -193,17 +189,13 @@ public:
             m_Mantisse -= other.m_Mantisse;
         } else if (m_Exponant < other.m_Exponant) {
             MiniMPZ scaled_other = other.m_Mantisse;
-            const int exp_diff = other.m_Exponant - m_Exponant;
-            for (int i = 0; i < exp_diff; ++i) {
-                scaled_other *= MiniMPZ(2L);
-            }
+            const mp_bitcnt_t exp_diff = static_cast<mp_bitcnt_t>(other.m_Exponant - m_Exponant);
+            mpz_mul_2exp(scaled_other.get_mpz(), scaled_other.get_mpz(), exp_diff);
             m_Mantisse -= scaled_other;
         } else {
             MiniMPZ scaled_self = m_Mantisse;
-            const int exp_diff = m_Exponant - other.m_Exponant;
-            for (int i = 0; i < exp_diff; ++i) {
-                scaled_self *= MiniMPZ(2L);
-            }
+            const mp_bitcnt_t exp_diff = static_cast<mp_bitcnt_t>(m_Exponant - other.m_Exponant);
+            mpz_mul_2exp(scaled_self.get_mpz(), scaled_self.get_mpz(), exp_diff);
             m_Mantisse = scaled_self - other.m_Mantisse;
             m_Exponant = other.m_Exponant;
         }
