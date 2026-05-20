@@ -18,13 +18,13 @@ private:
 
      // Normalize the floating point representation
      void normalize() {
-         if (m_Mantisse.sign() == 0) {
+         if (__builtin_expect(m_Mantisse.sign() == 0, 0)) {
              m_Exponant = 0;
              return;
          }
          // Use mpz_scan1 to find trailing zeros and shift them out in one operation
          mp_bitcnt_t trailing_zeros = mpz_scan1(m_Mantisse.get_mpz(), 0);
-         if (trailing_zeros > 0) {
+         if (__builtin_expect(trailing_zeros > 0, 1)) {
              mpz_tdiv_q_2exp(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), trailing_zeros);
              m_Exponant += static_cast<int>(trailing_zeros);
          }
