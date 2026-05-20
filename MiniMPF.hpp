@@ -167,7 +167,7 @@ public:
 
         if (__builtin_expect(m_Exponant == other.m_Exponant, 1)) {
             mpz_add(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
-        } else if (m_Exponant < other.m_Exponant) {
+        } else if (__builtin_expect(m_Exponant < other.m_Exponant, 0)) {
             // Scale other's mantissa up and add to this
             mpz_t temp;
             mpz_init(temp);
@@ -201,7 +201,7 @@ public:
 
         if (__builtin_expect(m_Exponant == other.m_Exponant, 1)) {
             mpz_sub(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
-        } else if (m_Exponant < other.m_Exponant) {
+        } else if (__builtin_expect(m_Exponant < other.m_Exponant, 0)) {
             // Scale other's mantissa up and subtract from this
             mpz_t temp;
             mpz_init(temp);
