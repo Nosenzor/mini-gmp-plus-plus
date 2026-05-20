@@ -166,7 +166,7 @@ public:
         }
 
         if (m_Exponant == other.m_Exponant) {
-            m_Mantisse += other.m_Mantisse;
+            mpz_add(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
         } else if (m_Exponant < other.m_Exponant) {
             // Scale other's mantissa up and add to this
             mpz_t temp;
@@ -200,7 +200,7 @@ public:
         }
 
         if (m_Exponant == other.m_Exponant) {
-            m_Mantisse -= other.m_Mantisse;
+            mpz_sub(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
         } else if (m_Exponant < other.m_Exponant) {
             // Scale other's mantissa up and subtract from this
             mpz_t temp;
