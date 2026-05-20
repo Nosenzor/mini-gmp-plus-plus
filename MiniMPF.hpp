@@ -148,19 +148,6 @@ public:
     bool operator>=(const MiniMPF& other) const { return compare(other) >= 0; }
 
     // Arithmetic operators - member functions
-    // Inline normalize after addition
-    void normalize_after_add() {
-        if (m_Mantisse.sign() == 0) {
-            m_Exponant = 0;
-            return;
-        }
-        mp_bitcnt_t trailing_zeros = mpz_scan1(m_Mantisse.get_mpz(), 0);
-        if (trailing_zeros > 0) {
-            mpz_tdiv_q_2exp(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), trailing_zeros);
-            m_Exponant += static_cast<int>(trailing_zeros);
-        }
-    }
-
     MiniMPF& operator+=(const MiniMPF& other) {
         if (IsZero()) {
             *this = other;
@@ -191,7 +178,7 @@ public:
             m_Exponant = other.m_Exponant;
         }
 
-        normalize_after_add();
+        normalize();
         return *this;
     }
 
