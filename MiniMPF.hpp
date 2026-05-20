@@ -52,16 +52,15 @@ public:
             exp--;
 
             // Convert to integer representation: abs_val is in [1.0, 2.0)
-            // Multiply by 2^52 to get the fractional part, then add the implicit 1
-            long mantissa = static_cast<long>(abs_val * (1LL << 52));
-            // For values in [1.0, 2.0), the integer part is 1, so we add 2^52
-            mantissa += (1L << 52);
+            // We want mantissa in [2^52, 2^53) so that value = mantissa * 2^(exp-52)
+            // This gives 53 bits of precision (52 explicit + 1 implicit)
+            long mantissa = static_cast<long>(abs_val * (1LL << 53));
             if (negative) {
                 mantissa = -mantissa;
             }
 
             m_Mantisse = MiniMPZ(mantissa);
-            m_Exponant = exp - 52;
+            m_Exponant = exp - 53;
             // normalize() skipped: double constructor already produces normalized mantissa
         }
     }
