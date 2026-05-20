@@ -271,6 +271,38 @@ public:
         return result;
     }
 
+    // FUSED DOT PRODUCT: avoids intermediate MiniMPF allocations
+    template<size_t N>
+    friend MiniMPF dot_product_fused(const std::array<MiniMPF, N>& a, const std::array<MiniMPF, N>& b) {
+        MiniMPF result;
+        mpz_mul(result.m_Mantisse.get_mpz(), a[0].m_Mantisse.get_mpz(), b[0].m_Mantisse.get_mpz());
+        result.m_Exponant = a[0].m_Exponant + b[0].m_Exponant;
+        for (size_t i = 1; i < N; ++i) {
+            mpz_t prod; mpz_init(prod);
+            mpz_mul(prod, a[i].m_Mantisse.get_mpz(), b[i].m_Mantisse.get_mpz());
+            int prod_exp = a[i].m_Exponant + b[i].m_Exponant;
+            const int exp_diff = result.m_Exponant - prod_exp;
+            if (exp_diff > 0) {
+                mpz_t scaled; mpz_init(scaled);
+                mpz_mul_2exp(scaled, prod, static_cast<mp_bitcnt_t>(exp_diff));
+                mpz_add(result.m_Mantisse.get_mpz(), result.m_Mantisse.get_mpz(), scaled);
+                mpz_clear(scaled);
+            } else if (exp_diff < 0) {
+                mpz_t scaled; mpz_init(scaled);
+                mpz_mul_2exp(scaled, result.m_Mantisse.get_mpz(), static_cast<mp_bitcnt_t>(-exp_diff));
+                result.m_Exponant = prod_exp;
+                mpz_set(result.m_Mantisse.get_mpz(), scaled);
+                mpz_add(result.m_Mantisse.get_mpz(), result.m_Mantisse.get_mpz(), prod);
+                mpz_clear(scaled);
+            } else {
+                mpz_add(result.m_Mantisse.get_mpz(), result.m_Mantisse.get_mpz(), prod);
+            }
+            mpz_clear(prod);
+        }
+        result.normalize();
+        return result;
+    }
+
     // Utility methods
     std::string Visu() const {
         if (IsZero()) return "0";
