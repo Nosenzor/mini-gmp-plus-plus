@@ -234,7 +234,7 @@ public:
         mpz_mul(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
         m_Exponant += other.m_Exponant;
         // If mantissa is zero, clear exponent
-        if (m_Mantisse.sign() == 0) {
+        if (__builtin_expect(m_Mantisse.sign() == 0, 0)) {
             m_Exponant = 0;
         }
         // Note: normalize not called because odd * odd = odd (no trailing zeros)
