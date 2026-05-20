@@ -45,15 +45,17 @@ public:
             int exp = 0;
 
             // Use frexp to extract exponent - faster than loops
+            // frexp gives abs_val in [0.5, 1.0) and exp such that abs_val * 2^exp = original
             abs_val = std::frexp(abs_val, &exp);
-            // frexp gives [0.5, 1.0), multiply by 2 to get [1.0, 2.0)
+            // Scale to [1.0, 2.0)
             abs_val *= 2.0;
             exp--;
 
-            // Now abs_val is in [1.0, 2.0), subtract 1.0 to get [0.0, 1.0)
-            // and compute mantissa as integer in [0, 2^53)
-            abs_val -= 1.0;
-            long mantissa = static_cast<long>((abs_val + 1.0) * (1LL << 52));
+            // Convert to integer representation: abs_val is in [1.0, 2.0)
+            // Multiply by 2^52 to get the fractional part, then add the implicit 1
+            long mantissa = static_cast<long>(abs_val * (1LL << 52));
+            // For values in [1.0, 2.0), the integer part is 1, so we add 2^52
+            mantissa += (1L << 52);
             if (negative) {
                 mantissa = -mantissa;
             }
