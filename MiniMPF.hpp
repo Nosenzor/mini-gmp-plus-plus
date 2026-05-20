@@ -62,7 +62,7 @@ public:
 
             m_Mantisse = MiniMPZ(mantissa);
             m_Exponant = exp - 52;
-            normalize();
+            // normalize() skipped: double constructor already produces normalized mantissa
         }
     }
 
