@@ -157,15 +157,15 @@ public:
 
     // Arithmetic operators - member functions
     MiniMPF& operator+=(const MiniMPF& other) {
-        if (IsZero()) {
+        if (__builtin_expect(IsZero(), 0)) {
             *this = other;
             return *this;
         }
-        if (other.IsZero()) {
+        if (__builtin_expect(other.IsZero(), 0)) {
             return *this;
         }
 
-        if (m_Exponant == other.m_Exponant) {
+        if (__builtin_expect(m_Exponant == other.m_Exponant, 1)) {
             mpz_add(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
         } else if (m_Exponant < other.m_Exponant) {
             // Scale other's mantissa up and add to this
@@ -191,15 +191,15 @@ public:
     }
 
     MiniMPF& operator-=(const MiniMPF& other) {
-        if (other.IsZero()) {
+        if (__builtin_expect(other.IsZero(), 0)) {
             return *this;
         }
-        if (IsZero()) {
+        if (__builtin_expect(IsZero(), 0)) {
             *this = -other;
             return *this;
         }
 
-        if (m_Exponant == other.m_Exponant) {
+        if (__builtin_expect(m_Exponant == other.m_Exponant, 1)) {
             mpz_sub(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
         } else if (m_Exponant < other.m_Exponant) {
             // Scale other's mantissa up and subtract from this
