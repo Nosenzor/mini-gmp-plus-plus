@@ -44,16 +44,22 @@ public:
             double abs_val = negative ? -val : val;
             int exp = 0;
 
-            while (abs_val >= 1.0) { abs_val *= 0.5; ++exp; }
-            while (abs_val < 0.5 && abs_val != 0.0) { abs_val *= 2.0; --exp; }
+            // Use frexp to extract exponent - faster than loops
+            abs_val = std::frexp(abs_val, &exp);
+            // frexp gives [0.5, 1.0), multiply by 2 to get [1.0, 2.0)
+            abs_val *= 2.0;
+            exp--;
 
-            long mantissa = static_cast<long>(abs_val * (1LL << 53));
+            // Now abs_val is in [1.0, 2.0), subtract 1.0 to get [0.0, 1.0)
+            // and compute mantissa as integer in [0, 2^53)
+            abs_val -= 1.0;
+            long mantissa = static_cast<long>((abs_val + 1.0) * (1LL << 52));
             if (negative) {
                 mantissa = -mantissa;
             }
 
             m_Mantisse = MiniMPZ(mantissa);
-            m_Exponant = exp - 53;
+            m_Exponant = exp - 52;
             normalize();
         }
     }
