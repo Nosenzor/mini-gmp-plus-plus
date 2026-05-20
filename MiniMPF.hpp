@@ -302,6 +302,92 @@ public:
         return result;
     }
 
+    // SIMD-INSPIRED DOT4 using __uint128_t
+    // For the common case where all values have single-limb mantissas (from doubles)
+    // and equal exponents, we can use 128-bit integer arithmetic for speed.
+    // Falls back to fused version if conditions are not met.
+    friend MiniMPF dot_product_simd4(const std::array<MiniMPF, 4>& a, const std::array<MiniMPF, 4>& b) {
+        // Check if all exponents are equal
+        int ref_exp = a[0].m_Exponant + b[0].m_Exponant;
+        for (size_t i = 1; i < 4; ++i) {
+            if (a[i].m_Exponant + b[i].m_Exponant != ref_exp) {
+                return dot_product_fused(a, b);
+            }
+        }
+        
+        // Check if all mantissas are single-limb
+        for (size_t i = 0; i < 4; ++i) {
+            const mpz_t& ma = a[i].m_Mantisse.get_mpz();
+            const mpz_t& mb = b[i].m_Mantisse.get_mpz();
+            if (ma->_mp_size < -1 || ma->_mp_size > 1 || mb->_mp_size < -1 || mb->_mp_size > 1) {
+                return dot_product_fused(a, b);
+            }
+        }
+        
+        // Fast path: all single-limb, same exponent
+        // Products are 53x53=106 bits, sum is up to 106+2=108 bits
+        // Use __uint128_t to handle this precisely
+        __uint128_t products[4];
+        int signs[4];  // 1 or -1 for each product's sign
+        
+        for (size_t i = 0; i < 4; ++i) {
+            const mpz_t& ma = a[i].m_Mantisse.get_mpz();
+            const mpz_t& mb = b[i].m_Mantisse.get_mpz();
+            
+            uint64_t a_limb = ma->_mp_d[0];
+            uint64_t b_limb = mb->_mp_d[0];
+            
+            // Determine sign of product
+            bool a_neg = (ma->_mp_size < 0);
+            bool b_neg = (mb->_mp_size < 0);
+            signs[i] = (a_neg == b_neg) ? 1 : -1;
+            
+            // Multiply absolute values
+            products[i] = static_cast<__uint128_t>(a_limb) * static_cast<__uint128_t>(b_limb);
+        }
+        
+        // Sum absolute values of products
+        __uint128_t abs_sum = products[0] + products[1] + products[2] + products[3];
+        
+        // Determine overall sign: XOR of all individual signs
+        // If odd number of negative products, result is negative
+        bool result_negative = false;
+        for (int s : signs) {
+            if (s < 0) result_negative = !result_negative;
+        }
+        
+        // Convert 128-bit result to MiniMPF
+        MiniMPF result;
+        result.m_Exponant = ref_exp;
+        
+        if (abs_sum == 0) {
+            result.m_Mantisse = MiniMPZ(0L);
+            result.m_Exponant = 0;
+        } else {
+            // Split 128-bit value into limbs for mpz_t
+            uint64_t lo = static_cast<uint64_t>(abs_sum);
+            uint64_t hi = static_cast<uint64_t>(abs_sum >> 64);
+            
+            mpz_t& m = result.m_Mantisse.get_mpz();
+            if (hi == 0) {
+                // Fits in single limb
+                m->_mp_size = result_negative ? -1 : 1;
+                m->_mp_d[0] = lo;
+            } else {
+                // Needs 2 limbs
+                // Check if it fits in the stack buffer
+                m->_mp_size = result_negative ? -2 : 2;
+                m->_mp_d[0] = lo;
+                m->_mp_d[1] = hi;
+            }
+            
+            // Normalize to remove trailing zeros
+            result.normalize();
+        }
+        
+        return result;
+    }
+
     // Utility methods
     std::string Visu() const {
         if (IsZero()) return "0";
