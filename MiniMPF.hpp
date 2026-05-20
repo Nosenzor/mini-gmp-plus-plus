@@ -186,7 +186,10 @@ public:
             m_Exponant = other.m_Exponant;
         }
 
-        normalize();
+        // Only normalize if result is even (has trailing zeros)
+        if (__builtin_expect(mpz_even_p(m_Mantisse.get_mpz()), 0)) {
+            normalize();
+        }
         return *this;
     }
 
@@ -220,7 +223,10 @@ public:
             m_Exponant = other.m_Exponant;
         }
 
-        normalize();
+        // Only normalize if result is even (has trailing zeros)
+        if (__builtin_expect(mpz_even_p(m_Mantisse.get_mpz()), 0)) {
+            normalize();
+        }
         return *this;
     }
 
