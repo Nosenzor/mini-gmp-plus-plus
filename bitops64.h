@@ -89,10 +89,20 @@ BITOPS64_INLINE int bitops64_ctz(uint64_t x) {
     return (x == 0) ? 64 : __builtin_ctzll(x);
 }
 
+#if defined(__SIZEOF_INT128__)
+// GCC and Clang define __SIZEOF_INT128__ when __int128 is available
 #pragma GCC diagnostic push // it's not ISO C++, but it's fine !
 #pragma GCC diagnostic ignored "-Wpedantic"
 typedef unsigned __int128 bitops64_uint128_t;
 #pragma GCC diagnostic pop
+#else
+// Fallback: use uint64_t pairs or disable 128-bit operations
+// For now, we keep unsigned __int128 as the typedef, but users should check
+// __SIZEOF_INT128__ before using functions that depend on it.
+// This maintains backward compatibility but may cause compilation errors
+// on compilers without __int128 support.
+typedef unsigned __int128 bitops64_uint128_t;
+#endif
 
 /**
  * \brief Shifts a 128 bits integer to the left

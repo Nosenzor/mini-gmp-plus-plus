@@ -2,6 +2,7 @@
 #ifndef MINIMPF_HPP
 #define MINIMPF_HPP
 
+#include "mini-gmp-plus-config.hpp"
 #include "MiniMPZ.hpp"
 #include <cmath>
 #include <functional>
@@ -18,13 +19,13 @@ private:
 
      // Normalize the floating point representation
      void normalize() {
-         if (__builtin_expect(m_Mantisse.sign() == 0, 0)) {
+         if (MINI_GMP_PLUS_EXPECT(m_Mantisse.sign() == 0, 0)) {
              m_Exponant = 0;
              return;
          }
          // Use mpz_scan1 to find trailing zeros and shift them out in one operation
          mp_bitcnt_t trailing_zeros = mpz_scan1(m_Mantisse.get_mpz(), 0);
-         if (__builtin_expect(trailing_zeros > 0, 1)) {
+         if (MINI_GMP_PLUS_EXPECT(trailing_zeros > 0, 1)) {
              mpz_tdiv_q_2exp(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), trailing_zeros);
              m_Exponant += static_cast<int>(trailing_zeros);
          }
@@ -156,17 +157,17 @@ public:
 
     // Arithmetic operators - member functions
     MiniMPF& operator+=(const MiniMPF& other) {
-        if (__builtin_expect(IsZero(), 0)) {
+        if (MINI_GMP_PLUS_EXPECT(IsZero(), 0)) {
             *this = other;
             return *this;
         }
-        if (__builtin_expect(other.IsZero(), 0)) {
+        if (MINI_GMP_PLUS_EXPECT(other.IsZero(), 0)) {
             return *this;
         }
 
-        if (__builtin_expect(m_Exponant == other.m_Exponant, 1)) {
+        if (MINI_GMP_PLUS_EXPECT(m_Exponant == other.m_Exponant, 1)) {
             mpz_add(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
-        } else if (__builtin_expect(m_Exponant < other.m_Exponant, 0)) {
+        } else if (MINI_GMP_PLUS_EXPECT(m_Exponant < other.m_Exponant, 0)) {
             // Scale other's mantissa up and add to this
             mpz_t temp;
             mpz_init(temp);
@@ -186,24 +187,24 @@ public:
         }
 
         // Only normalize if result is even (has trailing zeros)
-        if (__builtin_expect(mpz_even_p(m_Mantisse.get_mpz()), 0)) {
+        if (MINI_GMP_PLUS_EXPECT(mpz_even_p(m_Mantisse.get_mpz()), 0)) {
             normalize();
         }
         return *this;
     }
 
     MiniMPF& operator-=(const MiniMPF& other) {
-        if (__builtin_expect(other.IsZero(), 0)) {
+        if (MINI_GMP_PLUS_EXPECT(other.IsZero(), 0)) {
             return *this;
         }
-        if (__builtin_expect(IsZero(), 0)) {
+        if (MINI_GMP_PLUS_EXPECT(IsZero(), 0)) {
             *this = -other;
             return *this;
         }
 
-        if (__builtin_expect(m_Exponant == other.m_Exponant, 1)) {
+        if (MINI_GMP_PLUS_EXPECT(m_Exponant == other.m_Exponant, 1)) {
             mpz_sub(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
-        } else if (__builtin_expect(m_Exponant < other.m_Exponant, 0)) {
+        } else if (MINI_GMP_PLUS_EXPECT(m_Exponant < other.m_Exponant, 0)) {
             // Scale other's mantissa up and subtract from this
             mpz_t temp;
             mpz_init(temp);
@@ -223,7 +224,7 @@ public:
         }
 
         // Only normalize if result is even (has trailing zeros)
-        if (__builtin_expect(mpz_even_p(m_Mantisse.get_mpz()), 0)) {
+        if (MINI_GMP_PLUS_EXPECT(mpz_even_p(m_Mantisse.get_mpz()), 0)) {
             normalize();
         }
         return *this;
@@ -233,7 +234,7 @@ public:
         mpz_mul(m_Mantisse.get_mpz(), m_Mantisse.get_mpz(), other.m_Mantisse.get_mpz());
         m_Exponant += other.m_Exponant;
         // If mantissa is zero, clear exponent
-        if (__builtin_expect(m_Mantisse.sign() == 0, 0)) {
+        if (MINI_GMP_PLUS_EXPECT(m_Mantisse.sign() == 0, 0)) {
             m_Exponant = 0;
         }
         // Note: normalize not called because odd * odd = odd (no trailing zeros)
@@ -302,10 +303,10 @@ public:
         return result;
     }
 
-    // SIMD-INSPIRED DOT4 using __uint128_t
+    // SIMD-INSPIRED DOT4 using 128-bit integers
     // For the common case where all values have single-limb mantissas (from doubles)
     // and equal exponents, we can use 128-bit integer arithmetic for speed.
-    // Falls back to fused version if conditions are not met.
+    // Falls back to fused version if conditions are not met or __uint128_t is unavailable.
     friend MiniMPF dot_product_simd4(const std::array<MiniMPF, 4>& a, const std::array<MiniMPF, 4>& b) {
         // Check if all exponents are equal
         int ref_exp = a[0].m_Exponant + b[0].m_Exponant;
@@ -323,11 +324,12 @@ public:
                 return dot_product_fused(a, b);
             }
         }
-        
+
+#if MINI_GMP_PLUS_HAS_UINT128
         // Fast path: all single-limb, same exponent
         // Products are 53x53=106 bits, sum is up to 106+2=108 bits
-        // Use __uint128_t to handle this precisely
-        __uint128_t products[4];
+        // Use 128-bit integer type to handle this precisely
+        MINI_GMP_PLUS_UINT128_T products[4];
         int signs[4];  // 1 or -1 for each product's sign
         
         for (size_t i = 0; i < 4; ++i) {
@@ -343,11 +345,11 @@ public:
             signs[i] = (a_neg == b_neg) ? 1 : -1;
             
             // Multiply absolute values
-            products[i] = static_cast<__uint128_t>(a_limb) * static_cast<__uint128_t>(b_limb);
+            products[i] = static_cast<MINI_GMP_PLUS_UINT128_T>(a_limb) * static_cast<MINI_GMP_PLUS_UINT128_T>(b_limb);
         }
         
         // Sum absolute values of products
-        __uint128_t abs_sum = products[0] + products[1] + products[2] + products[3];
+        MINI_GMP_PLUS_UINT128_T abs_sum = products[0] + products[1] + products[2] + products[3];
         
         // Determine overall sign: XOR of all individual signs
         // If odd number of negative products, result is negative
@@ -386,6 +388,10 @@ public:
         }
         
         return result;
+#else
+        // __uint128_t not available, fall back to fused implementation
+        return dot_product_fused(a, b);
+#endif
     }
 
     // Utility methods
