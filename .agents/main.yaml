@@ -1,0 +1,16 @@
+version: "1.0"
+
+project:
+  name: "apeirogon"
+  description: "C++20 library for exact 3D Boolean operations on polyhedra using plane-based implicit coordinates and cascading exact arithmetic (DDE→IA→FRE)."
+  language: cpp
+  framework: cmake
+
+layers:
+  context: true
+  skills: true
+  commands: true
+  agents: true
+
+compatible_with:
+  - any
