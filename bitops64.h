@@ -48,9 +48,8 @@ typedef unsigned __int128 bitops64_uint128_t;
 #elif defined(_MSC_VER)
 /* MSVC does not have a native 128-bit integer type.
    The code that uses bitops64_uint128_t is inside #if defined(__GNUC__) blocks,
-   so this typedef is only needed to satisfy the declaration.
-   We use a dummy struct that will never be instantiated on MSVC. */
-typedef struct { uint64_t dummy[2]; } bitops64_uint128_t;
+   so this typedef is only needed to satisfy the declaration. */
+typedef unsigned __int64 bitops64_uint128_t;
 #else
 #error "bitops64_uint128_t requires GCC, Clang, or MSVC"
 #endif
