@@ -42,6 +42,22 @@
 #  endif
 #endif
 
+/* 128-bit integer type for multiplication */
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+typedef unsigned __int128 bitops64_uint128_t;
+#pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+/* MSVC does not have a native 128-bit integer type.
+   The code that uses bitops64_uint128_t is inside #if defined(__GNUC__) blocks,
+   so this typedef is only needed to satisfy the declaration.
+   We use a dummy struct that will never be instantiated on MSVC. */
+typedef struct { uint64_t dummy[2]; } bitops64_uint128_t;
+#else
+#error "bitops64_uint128_t requires GCC, Clang, or MSVC"
+#endif
+
 
 #if defined(__GNUC__)
 
@@ -88,28 +104,6 @@ BITOPS64_INLINE int bitops64_ctz_nonzero(uint64_t x) {
 BITOPS64_INLINE int bitops64_ctz(uint64_t x) {
     return (x == 0) ? 64 : __builtin_ctzll(x);
 }
-
-#if defined(__GNUC__)
-// GCC and Clang: use unsigned __int128 if available
-#pragma GCC diagnostic push // it's not ISO C++, but it's fine !
-#pragma GCC diagnostic ignored "-Wpedantic"
-typedef unsigned __int128 bitops64_uint128_t;
-#pragma GCC diagnostic pop
-#elif defined(_MSC_VER)
-// MSVC: use unsigned __int64 as a placeholder (128-bit operations use intrinsics)
-// MSVC uses __shiftleft128 and _umul128 intrinsics instead of a 128-bit type
-typedef struct { uint64_t low; uint64_t high; } bitops64_uint128_t;
-#else
-// Other compilers: try to use unsigned __int128 if available
-#if defined(__SIZEOF_INT128__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-typedef unsigned __int128 bitops64_uint128_t;
-#pragma GCC diagnostic pop
-#else
-#error "bitops64_uint128_t requires __SIZEOF_INT128__ or MSVC intrinsics"
-#endif
-#endif
 
 /**
  * \brief Shifts a 128 bits integer to the left
