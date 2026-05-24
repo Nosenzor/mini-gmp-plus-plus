@@ -19,27 +19,13 @@
 #  define MINI_GMP_PLUS_HAS_UINT128 1
 #  define MINI_GMP_PLUS_UINT128_T unsigned __int128
 #elif defined(_MSC_VER)
-// MSVC has __uint128_t in newer versions (2019+ with /std:c++latest or /arch:AVX2)
-#  if defined(__cpp_size_t) && __cpp_size_t >= 201806L
-#    include <cstdint>
-#    ifdef __uint128_t
-#      define MINI_GMP_PLUS_HAS_UINT128 1
-#      define MINI_GMP_PLUS_UINT128_T __uint128_t
-#    else
-#      define MINI_GMP_PLUS_HAS_UINT128 0
-#    endif
-#  else
-#    define MINI_GMP_PLUS_HAS_UINT128 0
-#  endif
+// MSVC: __uint128_t is not standard, use 0
+#  define MINI_GMP_PLUS_HAS_UINT128 0
 #else
 // Other compilers - try to detect
-#  ifdef __has_include
-#    if __has_include(<cstdint>) && defined(__UINT128_TYPE__)
-#      define MINI_GMP_PLUS_HAS_UINT128 1
-#      define MINI_GMP_PLUS_UINT128_T __UINT128_TYPE__
-#    else
-#      define MINI_GMP_PLUS_HAS_UINT128 0
-#    endif
+#  if defined(__has_include) && __has_include(<cstdint>) && defined(__UINT128_TYPE__)
+#    define MINI_GMP_PLUS_HAS_UINT128 1
+#    define MINI_GMP_PLUS_UINT128_T __UINT128_TYPE__
 #  else
 #    define MINI_GMP_PLUS_HAS_UINT128 0
 #  endif
