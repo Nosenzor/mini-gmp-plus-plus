@@ -44,10 +44,7 @@
 
 /* 128-bit integer type for multiplication */
 #if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
 typedef unsigned __int128 bitops64_uint128_t;
-#pragma GCC diagnostic pop
 #elif defined(_MSC_VER)
 /* MSVC does not have a native 128-bit integer type.
    The code that uses bitops64_uint128_t is inside #if defined(__GNUC__) blocks,
