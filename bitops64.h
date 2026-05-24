@@ -89,19 +89,26 @@ BITOPS64_INLINE int bitops64_ctz(uint64_t x) {
     return (x == 0) ? 64 : __builtin_ctzll(x);
 }
 
-#if defined(__SIZEOF_INT128__)
-// GCC and Clang define __SIZEOF_INT128__ when __int128 is available
+#if defined(__GNUC__)
+// GCC and Clang: use unsigned __int128 if available
 #pragma GCC diagnostic push // it's not ISO C++, but it's fine !
 #pragma GCC diagnostic ignored "-Wpedantic"
 typedef unsigned __int128 bitops64_uint128_t;
 #pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+// MSVC: use unsigned __int64 as a placeholder (128-bit operations use intrinsics)
+// MSVC uses __shiftleft128 and _umul128 intrinsics instead of a 128-bit type
+typedef struct { uint64_t low; uint64_t high; } bitops64_uint128_t;
 #else
-// Fallback: use uint64_t pairs or disable 128-bit operations
-// For now, we keep unsigned __int128 as the typedef, but users should check
-// __SIZEOF_INT128__ before using functions that depend on it.
-// This maintains backward compatibility but may cause compilation errors
-// on compilers without __int128 support.
+// Other compilers: try to use unsigned __int128 if available
+#if defined(__SIZEOF_INT128__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
 typedef unsigned __int128 bitops64_uint128_t;
+#pragma GCC diagnostic pop
+#else
+#error "bitops64_uint128_t requires __SIZEOF_INT128__ or MSVC intrinsics"
+#endif
 #endif
 
 /**
