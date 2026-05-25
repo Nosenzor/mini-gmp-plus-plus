@@ -4,6 +4,7 @@
 
 #include "mini-gmp-plus-config.hpp"
 #include "MiniMPZ.hpp"
+#include <array>
 #include <cmath>
 #include <functional>
 #include <limits>
