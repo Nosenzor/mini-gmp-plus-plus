@@ -42,6 +42,18 @@
 #  endif
 #endif
 
+/* 128-bit integer type for multiplication */
+#if defined(__GNUC__)
+typedef unsigned __int128 bitops64_uint128_t;
+#elif defined(_MSC_VER)
+/* MSVC does not have a native 128-bit integer type.
+   The code that uses bitops64_uint128_t is inside #if defined(__GNUC__) blocks,
+   so this typedef is only needed to satisfy the declaration. */
+typedef unsigned __int64 bitops64_uint128_t;
+#else
+#error "bitops64_uint128_t requires GCC, Clang, or MSVC"
+#endif
+
 
 #if defined(__GNUC__)
 
@@ -88,11 +100,6 @@ BITOPS64_INLINE int bitops64_ctz_nonzero(uint64_t x) {
 BITOPS64_INLINE int bitops64_ctz(uint64_t x) {
     return (x == 0) ? 64 : __builtin_ctzll(x);
 }
-
-#pragma GCC diagnostic push // it's not ISO C++, but it's fine !
-#pragma GCC diagnostic ignored "-Wpedantic"
-typedef unsigned __int128 bitops64_uint128_t;
-#pragma GCC diagnostic pop
 
 /**
  * \brief Shifts a 128 bits integer to the left
