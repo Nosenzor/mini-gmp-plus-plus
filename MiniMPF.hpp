@@ -11,7 +11,6 @@
 #include <string>
 #include <ostream>
 
-enum Sign_t { NEGATIVE = -1, ZERO = 0, POSITIVE = 1 };
 
 class MiniMPF {
 private:
@@ -112,7 +111,8 @@ public:
     bool IsPositive() const { return m_Mantisse.sign() > 0; }
     bool IsNegative() const { return m_Mantisse.sign() < 0; }
     bool IsZero() const { return m_Mantisse.sign() == 0; }
-    Sign_t Sign() const { return static_cast<Sign_t>(m_Mantisse.sign()); }
+    int Sign() const { return m_Mantisse.sign(); }
+
     void FlipSign() { m_Mantisse = -m_Mantisse; }
 
     // Accessors
@@ -123,14 +123,14 @@ public:
     int compare(const MiniMPF& other) const {
         if (IsZero() && other.IsZero()) return 0;
         
-        Sign_t s1 = Sign();
-        Sign_t s2 = other.Sign();
+        int s1 = Sign();
+        int s2 = other.Sign();
         
         if (s1 != s2) {
             return (s1 > s2) ? 1 : -1;
         }
         
-        if (s1 == ZERO) return 0;
+        if (s1 == 0) return 0;
 
         MiniMPZ lhs = m_Mantisse;
         MiniMPZ rhs = other.m_Mantisse;
@@ -452,10 +452,29 @@ public:
 
      // Hash support
      size_t hash() const {
-         // Hash the mantissa by converting to string (simple approach)
+         if (IsZero()) {
+             std::hash<std::string> str_hash;
+             return str_hash("0") ^ (std::hash<int>()(0) << 1);
+         }
+         // Use canonical (normalized) representation so that mathematically
+         // equal values hash the same, even if they have different internal
+         // mantissa/exponent pairs (e.g. 1.0 from double ctor vs. 0.5+0.5).
+         mp_bitcnt_t trailing_zeros = mpz_scan1(m_Mantisse.get_mpz(), 0);
          std::hash<std::string> str_hash;
-         size_t h1 = str_hash(m_Mantisse.to_string());
-         size_t h2 = std::hash<int>()(m_Exponant);
+         if (trailing_zeros == 0) {
+             size_t h1 = str_hash(m_Mantisse.to_string());
+             size_t h2 = std::hash<int>()(m_Exponant);
+             return h1 ^ (h2 << 1);
+         }
+         mpz_t normalized;
+         mpz_init(normalized);
+         mpz_tdiv_q_2exp(normalized, m_Mantisse.get_mpz(), trailing_zeros);
+         char* cstr = mpz_get_str(nullptr, 10, normalized);
+         std::string normalized_str(cstr);
+         free(cstr);
+         mpz_clear(normalized);
+         size_t h1 = str_hash(normalized_str);
+         size_t h2 = std::hash<int>()(m_Exponant + static_cast<int>(trailing_zeros));
          return h1 ^ (h2 << 1);
      }
 
