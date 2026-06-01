@@ -11,7 +11,6 @@
 #include <ostream>
 
 
-
 class MiniMPF {
 private:
     MiniMPZ m_Mantisse;
