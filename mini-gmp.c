@@ -45,6 +45,7 @@ see https://www.gnu.org/licenses/.  */
 #include <assert.h>
 #include <ctype.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,6 +101,20 @@ see https://www.gnu.org/licenses/.  */
 /* [Bruno Levy] 11/04/2025 use fast versions in bitops64.h */
 #define gmp_clz(count, x) count = bitops64_clz(x)
 #define gmp_ctz(count, x) count = bitops64_ctz(x)
+
+/* Opt selected hot functions out of the compiler's stack protector.  Their
+   local buffers are written through explicitly size-checked paths only, and
+   the guard load/compare costs several percent on small-operand workloads
+   (the protector stays enabled everywhere else, e.g. string parsing).
+   Define MINI_GMP_NO_STACK_PROTECTOR (e.g. to nothing) to override. */
+#ifndef MINI_GMP_NO_STACK_PROTECTOR
+#if (defined(__clang__) && __clang_major__ >= 11) || \
+    (!defined(__clang__) && defined(__GNUC__) && __GNUC__ >= 11)
+#define MINI_GMP_NO_STACK_PROTECTOR __attribute__((no_stack_protector))
+#else
+#define MINI_GMP_NO_STACK_PROTECTOR
+#endif
+#endif
 
 #define gmp_add_ssaaaa(sh, sl, ah, al, bh, bl) \
   do {									\
@@ -396,7 +411,11 @@ gmp_free_limbs (mp_ptr old, mp_size_t size)
 
 /* MPN interface */
 
-#ifndef MINI_GMP_SIMD
+/* [Bruno Levy / perf] These small scalar primitives are always compiled in
+   this translation unit, even in SIMD builds: they are called from the hot
+   mpz_* paths and being in the same TU lets the compiler inline them.  Only
+   the routines that genuinely benefit from vectorization (mpn_popcount,
+   mpn_hamdist, mpn_com, mpn_and_n/ior_n/xor_n) live in mini-gmp-simd.cpp. */
 void
 mpn_copyi (mp_ptr d, mp_srcptr s, mp_size_t n)
 {
@@ -404,16 +423,13 @@ mpn_copyi (mp_ptr d, mp_srcptr s, mp_size_t n)
   for (i = 0; i < n; i++)
     d[i] = s[i];
 }
-#endif /* MINI_GMP_SIMD */
 
-#ifndef MINI_GMP_SIMD
 void
 mpn_copyd (mp_ptr d, mp_srcptr s, mp_size_t n)
 {
   while (--n >= 0)
     d[n] = s[n];
 }
-#endif /* MINI_GMP_SIMD */
 
 static inline int
 mini_gmp_mpn_cmp_scalar (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
@@ -546,13 +562,11 @@ mini_gmp_mpn_rshift_scalar (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int c
   return retval;
 }
 
-#ifndef MINI_GMP_SIMD
 int
 mpn_cmp (mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
   return mini_gmp_mpn_cmp_scalar (ap, bp, n);
 }
-#endif /* MINI_GMP_SIMD */
 
 static int
 mpn_cmp4 (mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
@@ -571,22 +585,18 @@ mpn_normalized_size (mp_srcptr xp, mp_size_t n)
   return n;
 }
 
-#ifndef MINI_GMP_SIMD
 int
 mpn_zero_p(mp_srcptr rp, mp_size_t n)
 {
   return mpn_normalized_size (rp, n) == 0;
 }
-#endif /* MINI_GMP_SIMD */
 
-#ifndef MINI_GMP_SIMD
 void
 mpn_zero (mp_ptr rp, mp_size_t n)
 {
   while (--n >= 0)
     rp[n] = 0;
 }
-#endif /* MINI_GMP_SIMD */
 
 mp_limb_t
 mpn_add_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
@@ -621,13 +631,11 @@ mpn_add_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
   return b;
 }
 
-#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_add_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
   return mini_gmp_mpn_add_n_scalar (rp, ap, bp, n);
 }
-#endif /* MINI_GMP_SIMD */
 
 mp_limb_t
 mpn_sub_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
@@ -663,13 +671,11 @@ mpn_sub_1 (mp_ptr rp, mp_srcptr ap, mp_size_t n, mp_limb_t b)
   return b;
 }
 
-#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_sub_n (mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
 {
   return mini_gmp_mpn_sub_n_scalar (rp, ap, bp, n);
 }
-#endif /* MINI_GMP_SIMD */
 
 mp_limb_t
 mpn_add (mp_ptr rp, mp_srcptr ap, mp_size_t an, mp_srcptr bp, mp_size_t bn)
@@ -842,6 +848,42 @@ mpn_mul (mp_ptr rp, mp_srcptr up, mp_size_t un, mp_srcptr vp, mp_size_t vn)
   if (un == 2 && vn == 2)
     return mini_gmp_mpn_mul_2x2 (rp, up, vp);
 
+#if defined(__GNUC__)
+  /* Straight-line 1xN kernels for the small shapes that dominate
+     numerical-geometry workloads (multiply-accumulate of 1..4-limb
+     values); they avoid the loop-carried dispatch of mpn_mul_1. */
+  if (vn == 1 && un <= 4)
+    {
+      const mp_limb_t v0 = vp[0];
+      bitops64_uint128_t p;
+      mp_limb_t cy;
+
+      p = (bitops64_uint128_t) up[0] * v0;
+      rp[0] = (mp_limb_t) p;
+      cy = (mp_limb_t) (p >> GMP_LIMB_BITS);
+      if (un >= 2)
+	{
+	  p = (bitops64_uint128_t) up[1] * v0 + cy;
+	  rp[1] = (mp_limb_t) p;
+	  cy = (mp_limb_t) (p >> GMP_LIMB_BITS);
+	}
+      if (un >= 3)
+	{
+	  p = (bitops64_uint128_t) up[2] * v0 + cy;
+	  rp[2] = (mp_limb_t) p;
+	  cy = (mp_limb_t) (p >> GMP_LIMB_BITS);
+	}
+      if (un == 4)
+	{
+	  p = (bitops64_uint128_t) up[3] * v0 + cy;
+	  rp[3] = (mp_limb_t) p;
+	  cy = (mp_limb_t) (p >> GMP_LIMB_BITS);
+	}
+      rp[un] = cy;
+      return cy;
+    }
+#endif
+
   /* We first multiply by the low order limb. This result can be
      stored, not added, to rp. We also avoid a loop for zeroing this
      way. */
@@ -871,21 +913,17 @@ mpn_sqr (mp_ptr rp, mp_srcptr ap, mp_size_t n)
   mpn_mul (rp, ap, n, ap, n);
 }
 
-#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_lshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
   return mini_gmp_mpn_lshift_scalar (rp, up, n, cnt);
 }
-#endif /* MINI_GMP_SIMD */
 
-#ifndef MINI_GMP_SIMD
 mp_limb_t
 mpn_rshift (mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
 {
   return mini_gmp_mpn_rshift_scalar (rp, up, n, cnt);
 }
-#endif /* MINI_GMP_SIMD */
 
 static mp_bitcnt_t
 mpn_common_scan (mp_limb_t limb, mp_size_t i, mp_srcptr up, mp_size_t un,
@@ -1170,26 +1208,47 @@ mpn_div_qr_1_preinv (mp_ptr qp, mp_srcptr np, mp_size_t nn,
 {
   mp_limb_t d, di;
   mp_limb_t r;
-  mp_ptr tp = NULL;
-  mp_size_t tn = 0;
-
-  if (inv->shift > 0)
-    {
-      /* Shift, reusing qp area if possible. In-place shift if qp == np. */
-      tp = qp;
-      if (!tp)
-        {
-	   tn = nn;
-	   tp = gmp_alloc_limbs (tn);
-        }
-      r = mini_gmp_mpn_lshift_scalar (tp, np, nn, inv->shift);
-      np = tp;
-    }
-  else
-    r = 0;
 
   d = inv->d1;
   di = inv->di;
+
+  if (inv->shift > 0)
+    {
+      unsigned shift = inv->shift;
+      unsigned tnc = GMP_LIMB_BITS - shift;
+
+      r = np[nn - 1] >> tnc;
+
+      if (qp)
+	{
+	  /* Shift into qp (reusing the quotient area), then divide in
+	     place; each index is read before it is overwritten. */
+	  mini_gmp_mpn_lshift_scalar (qp, np, nn, shift);
+	  while (--nn >= 0)
+	    {
+	      mp_limb_t q;
+	      gmp_udiv_qrnnd_preinv (q, r, r, qp[nn], d, di);
+	      qp[nn] = q;
+	    }
+	}
+      else
+	{
+	  /* No quotient wanted: form the shifted dividend limbs on the
+	     fly instead of allocating a temporary buffer. */
+	  mp_size_t i;
+	  mp_limb_t q;
+	  for (i = nn - 1; i > 0; i--)
+	    {
+	      mp_limb_t nl = (np[i] << shift) | (np[i - 1] >> tnc);
+	      gmp_udiv_qrnnd_preinv (q, r, r, nl, d, di);
+	    }
+	  gmp_udiv_qrnnd_preinv (q, r, r, np[0] << shift, d, di);
+	  (void) q;
+	}
+      return r >> shift;
+    }
+
+  r = 0;
   while (--nn >= 0)
     {
       mp_limb_t q;
@@ -1198,10 +1257,8 @@ mpn_div_qr_1_preinv (mp_ptr qp, mp_srcptr np, mp_size_t nn,
       if (qp)
 	qp[nn] = q;
     }
-  if (tn)
-    gmp_free_limbs (tp, tn);
 
-  return r >> inv->shift;
+  return r;
 }
 
 static void
@@ -1345,10 +1402,16 @@ mpn_div_qr_preinv (mp_ptr qp, mp_ptr np, mp_size_t nn,
     }
 }
 
-static void
+/* Stack scratch used to avoid heap allocation in the small divisions that
+   dominate numerical-geometry workloads (Newton iterations in mpz_rootrem,
+   the reduction step in mpz_gcd, ...).  16 limbs = 1024 bits. */
+#define MINI_GMP_DIV_STACK_LIMBS 16
+
+static MINI_GMP_NO_STACK_PROTECTOR void
 mpn_div_qr (mp_ptr qp, mp_ptr np, mp_size_t nn, mp_srcptr dp, mp_size_t dn)
 {
   struct gmp_div_inverse inv;
+  mp_limb_t dbuf[MINI_GMP_DIV_STACK_LIMBS];
   mp_ptr tp = NULL;
 
   assert (dn > 0);
@@ -1357,9 +1420,13 @@ mpn_div_qr (mp_ptr qp, mp_ptr np, mp_size_t nn, mp_srcptr dp, mp_size_t dn)
   mpn_div_qr_invert (&inv, dp, dn);
   if (dn > 2 && inv.shift > 0)
     {
-      tp = gmp_alloc_limbs (dn);
-      gmp_assert_nocarry (mini_gmp_mpn_lshift_scalar (tp, dp, dn, inv.shift));
-      dp = tp;
+      mp_ptr sp;
+      if (dn <= (mp_size_t) MINI_GMP_DIV_STACK_LIMBS)
+	sp = dbuf;
+      else
+	sp = tp = gmp_alloc_limbs (dn);
+      gmp_assert_nocarry (mini_gmp_mpn_lshift_scalar (sp, dp, dn, inv.shift));
+      dp = sp;
     }
   mpn_div_qr_preinv (qp, np, nn, dp, dn, &inv);
   if (tp)
@@ -2400,6 +2467,7 @@ mpz_mul_ui (mpz_t r, const mpz_t u, unsigned long int v)
     r->_mp_size = (u->_mp_size < 0) ? -rn : rn;
 }
 
+MINI_GMP_NO_STACK_PROTECTOR
 void
 mpz_mul (mpz_t r, const mpz_t u, const mpz_t v)
 {
@@ -2417,6 +2485,28 @@ mpz_mul (mpz_t r, const mpz_t u, const mpz_t v)
       return;
     }
 
+  sign = (un ^ vn) < 0;
+
+  un = GMP_ABS (un);
+  vn = GMP_ABS (vn);
+
+  if (un == 1 && vn == 1)
+    {
+      /* Both operand limbs are loaded before r is written, so this path
+	 never needs a temporary even when r aliases u or v. */
+      mp_limb_t ul = u->_mp_d[0];
+      mp_limb_t vl = v->_mp_d[0];
+      mp_ptr rp = MPZ_REALLOC (r, 2);
+      mp_limb_t high, low;
+
+      gmp_umul_ppmm (high, low, ul, vl);
+      rp[0] = low;
+      rp[1] = high;
+      rn = 1 + (high != 0);
+      r->_mp_size = sign ? -rn : rn;
+      return;
+    }
+
   /*
    * [Bruno Levy] 10/19/2025
    * with local buff, mpz_swap costs a bit, so only use a temporary when
@@ -2431,26 +2521,6 @@ mpz_mul (mpz_t r, const mpz_t u, const mpz_t v)
 #else
   int needs_temp = 1; /* No buff: always use temp (as in original mini-gmp) */
 #endif
-
-  sign = (un ^ vn) < 0;
-
-  un = GMP_ABS (un);
-  vn = GMP_ABS (vn);
-
-  if (un == 1 && vn == 1)
-    {
-      mp_limb_t ul = u->_mp_d[0];
-      mp_limb_t vl = v->_mp_d[0];
-      mp_ptr rp = MPZ_REALLOC (r, 2);
-      mp_limb_t high, low;
-
-      gmp_umul_ppmm (high, low, ul, vl);
-      rp[0] = low;
-      rp[1] = high;
-      rn = 1 + (high != 0);
-      r->_mp_size = sign ? -rn : rn;
-      return;
-    }
 
   if(needs_temp) {
       mpz_init2 (t, (un + vn) * GMP_LIMB_BITS);
@@ -2538,7 +2608,7 @@ mpz_submul_ui (mpz_t r, const mpz_t u, unsigned long int v)
  *
  * Returns 1 if handled (caller should return), 0 if the slow path is needed.
  */
-static int
+static MINI_GMP_NO_STACK_PROTECTOR int
 mpz_aorsmul_fast (mpz_t r, const mpz_t u, const mpz_t v, int add)
 {
   mp_size_t un = GMP_ABS (u->_mp_size);
@@ -2613,6 +2683,7 @@ mpz_aorsmul_fast (mpz_t r, const mpz_t u, const mpz_t v, int add)
 }
 #endif /* MINI_GMP_PLUS_BUFF_SIZE */
 
+MINI_GMP_NO_STACK_PROTECTOR
 void
 mpz_addmul (mpz_t r, const mpz_t u, const mpz_t v)
 {
@@ -2629,6 +2700,7 @@ mpz_addmul (mpz_t r, const mpz_t u, const mpz_t v)
   }
 }
 
+MINI_GMP_NO_STACK_PROTECTOR
 void
 mpz_submul (mpz_t r, const mpz_t u, const mpz_t v)
 {
@@ -2650,7 +2722,7 @@ mpz_submul (mpz_t r, const mpz_t u, const mpz_t v)
 enum mpz_div_round_mode { GMP_DIV_FLOOR, GMP_DIV_CEIL, GMP_DIV_TRUNC };
 
 /* Allows q or r to be zero. Returns 1 iff remainder is non-zero. */
-static int
+static MINI_GMP_NO_STACK_PROTECTOR int
 mpz_div_qr (mpz_t q, mpz_t r,
 	    const mpz_t n, const mpz_t d, enum mpz_div_round_mode mode)
 {
@@ -2708,9 +2780,25 @@ mpz_div_qr (mpz_t q, mpz_t r,
       mp_ptr np, qp;
       mp_size_t qn, rn;
       mpz_t tq, tr;
+      /* For truncating division of small operands (the hot case:
+	 mpz_tdiv_q / mpz_tdiv_r / mpz_tdiv_qr), copy the dividend into a
+	 stack buffer instead of a heap-allocated temporary.  TRUNC needs no
+	 post-division adjustment involving the mpz temporaries, so the
+	 results can be written out directly from the scratch buffer. */
+      mp_limb_t nbuf[MINI_GMP_DIV_STACK_LIMBS];
+      int use_stack = (mode == GMP_DIV_TRUNC
+		       && nn <= (mp_size_t) MINI_GMP_DIV_STACK_LIMBS);
 
-      mpz_init_set (tr, n);
-      np = tr->_mp_d;
+      if (use_stack)
+	{
+	  mpn_copyi (nbuf, n->_mp_d, nn);
+	  np = nbuf;
+	}
+      else
+	{
+	  mpz_init_set (tr, n);
+	  np = tr->_mp_d;
+	}
 
       qn = nn - dn + 1;
 
@@ -2731,6 +2819,26 @@ mpz_div_qr (mpz_t q, mpz_t r,
 	  tq->_mp_size = qs < 0 ? -qn : qn;
 	}
       rn = mpn_normalized_size (np, dn);
+
+      if (use_stack)
+	{
+	  /* Write q first (swapped in from tq, safe if q aliases n or d),
+	     then copy the remainder out of the stack buffer (safe even if
+	     r aliases n or d). */
+	  if (q)
+	    {
+	      mpz_swap (tq, q);
+	      mpz_clear (tq);
+	    }
+	  if (r)
+	    {
+	      mp_ptr rp = MPZ_REALLOC (r, rn);
+	      mpn_copyi (rp, np, rn);
+	      r->_mp_size = ns < 0 ? - rn : rn;
+	    }
+	  return rn != 0;
+	}
+
       tr->_mp_size = ns < 0 ? - rn : rn;
 
       if (mode == GMP_DIV_FLOOR && qs < 0 && rn != 0)
@@ -3165,6 +3273,161 @@ mpn_gcd_11 (mp_limb_t u, mp_limb_t v)
   return u << shift;
 }
 
+/* Binary gcd of the two-limb values {u1,u0} and {v1,v0}; both inputs must
+   be odd (and hence nonzero).  Runs entirely in registers.  Modeled after
+   GMP's mpn/generic/gcd_22.c. */
+static void
+mpn_gcd_22 (mp_limb_t *g1, mp_limb_t *g0,
+	    mp_limb_t u1, mp_limb_t u0, mp_limb_t v1, mp_limb_t v0)
+{
+  assert ((u0 & 1) != 0);
+  assert ((v0 & 1) != 0);
+
+  while (u1 != v1 || u0 != v0)
+    {
+      mp_limb_t d1, d0;
+      unsigned shift;
+
+      /* d = |u - v| (even and nonzero, since u != v and both are odd);
+	 keep min(u, v) in {v1,v0}. */
+      if (u1 > v1 || (u1 == v1 && u0 > v0))
+	{
+	  d0 = u0 - v0;
+	  d1 = u1 - v1 - (u0 < v0);
+	}
+      else
+	{
+	  d0 = v0 - u0;
+	  d1 = v1 - u1 - (v0 < u0);
+	  v1 = u1;
+	  v0 = u0;
+	}
+
+      /* u = d >> ctz(d). */
+      if (d0 == 0)
+	{
+	  /* At least GMP_LIMB_BITS trailing zeros. */
+	  d0 = d1;
+	  d1 = 0;
+	}
+      gmp_ctz (shift, d0);
+      if (shift > 0)
+	{
+	  d0 = (d0 >> shift) | (d1 << (GMP_LIMB_BITS - shift));
+	  d1 >>= shift;
+	}
+      u1 = d1;
+      u0 = d0;
+
+      if ((u1 | v1) == 0)
+	{
+	  *g1 = 0;
+	  *g0 = mpn_gcd_11 (u0, v0);
+	  return;
+	}
+    }
+
+  *g1 = u1;
+  *g0 = u0;
+}
+
+/* Make {up,un} odd in place: shift out trailing zero limbs and bits.
+   {up,un} must be positive (nonzero).  Returns the new size. */
+static mp_size_t
+mpn_make_odd_inplace (mp_ptr up, mp_size_t un)
+{
+  mp_size_t k;
+  unsigned c;
+
+  for (k = 0; up[k] == 0; k++)
+    ;
+  gmp_ctz (c, up[k]);
+
+  if (c > 0)
+    {
+      mini_gmp_mpn_rshift_scalar (up, up + k, un - k, c);
+      un -= k;
+      un -= (up[un - 1] == 0);
+    }
+  else if (k > 0)
+    {
+      mpn_copyi (up, up + k, un - k);
+      un -= k;
+    }
+  return un;
+}
+
+/* Binary gcd of {up,un} (positive, possibly even) and {vp,vn} (odd,
+   positive), computed in place in the two buffers (values only shrink, so
+   no extra storage is needed).  Stores a pointer to the buffer holding the
+   gcd limbs in *gp (one of up / vp) and returns the gcd size.
+
+   Compared with running the same loop at the mpz layer, this saves the
+   per-iteration call/dispatch/normalization overhead of
+   mpz_make_odd + mpz_cmp + mpz_swap + mpz_sub, and drops out to the
+   register-based mpn_gcd_22 / mpn_gcd_11 as soon as both values fit in
+   two limbs. */
+static mp_size_t
+mpn_gcd_bin (mp_srcptr *gp, mp_ptr up, mp_size_t un, mp_ptr vp, mp_size_t vn)
+{
+  un = mpn_make_odd_inplace (up, un);
+
+  for (;;)
+    {
+      int c;
+
+      /* Order the (odd) values so that u >= v. */
+      c = mpn_cmp4 (up, un, vp, vn);
+      if (c == 0)
+	break;
+      if (c < 0)
+	{
+	  MP_PTR_SWAP (up, vp);
+	  MP_SIZE_T_SWAP (un, vn);
+	}
+
+      if (vn <= 2)
+	{
+	  if (un > 2)
+	    {
+	      /* v is small but u is not: one division closes the gap. */
+	      mpn_div_qr (NULL, up, un, vp, vn);
+	      un = mpn_normalized_size (up, vn);
+	      if (un == 0)
+		break;
+	      un = mpn_make_odd_inplace (up, un);
+	      continue;
+	    }
+
+	  /* Both fit in two limbs: finish in registers. */
+	  {
+	    mp_limb_t g1, g0;
+	    mpn_gcd_22 (&g1, &g0,
+			un == 2 ? up[1] : 0, up[0],
+			vn == 2 ? vp[1] : 0, vp[0]);
+	    up[0] = g0;
+	    un = 1;
+	    if (g1 != 0)
+	      {
+		up[1] = g1;
+		un = 2;
+	      }
+	    *gp = up;
+	    return un;
+	  }
+	}
+
+      /* u -= v (borrow-free since u > v), then make the (even, nonzero)
+	 difference odd again. */
+      gmp_assert_nocarry (mpn_sub (up, up, un, vp, vn));
+      un = mpn_normalized_size (up, un);
+      un = mpn_make_odd_inplace (up, un);
+    }
+
+  *gp = vp;
+  return vn;
+}
+
 unsigned long
 mpz_gcd_ui (mpz_t g, const mpz_t u, unsigned long v)
 {
@@ -3224,39 +3487,30 @@ mpz_gcd (mpz_t g, const mpz_t u, const mpz_t v)
   if (tu->_mp_size < tv->_mp_size)
     mpz_swap (tu, tv);
 
-  mpz_tdiv_r (tu, tu, tv);
+  /* One initial division brings the operands to comparable size.  Skip it
+     when they already have the same limb count: the quotient is then only
+     a few bits, which the binary loop absorbs at lower cost. */
+  if (tu->_mp_size > tv->_mp_size)
+    mpz_tdiv_r (tu, tu, tv);
+
   if (tu->_mp_size == 0)
     {
       mpz_swap (g, tv);
     }
   else
-    for (;;)
-      {
-	int c;
+    {
+      mp_srcptr gp;
+      mp_size_t gn;
+      mp_ptr rp;
 
-	mpz_make_odd (tu);
-	c = mpz_cmp (tu, tv);
-	if (c == 0)
-	  {
-	    mpz_swap (g, tu);
-	    break;
-	  }
-	if (c < 0)
-	  mpz_swap (tu, tv);
-
-	if (tv->_mp_size == 1)
-	  {
-	    mp_limb_t *gp;
-
-	    mpz_tdiv_r (tu, tu, tv);
-	    gp = MPZ_REALLOC (g, 1); /* gp = mpz_limbs_modify (g, 1); */
-	    *gp = mpn_gcd_11 (tu->_mp_d[0], tv->_mp_d[0]);
-
-	    g->_mp_size = *gp != 0; /* mpz_limbs_finish (g, 1); */
-	    break;
-	  }
-	mpz_sub (tu, tu, tv);
-      }
+      /* Both temporaries are positive; tv is odd; the gcd loop runs on raw
+	 limbs, in place. */
+      gn = mpn_gcd_bin (&gp, tu->_mp_d, tu->_mp_size,
+			tv->_mp_d, tv->_mp_size);
+      rp = MPZ_REALLOC (g, gn);
+      mpn_copyi (rp, gp, gn);
+      g->_mp_size = gn;
+    }
   mpz_clear (tu);
   mpz_clear (tv);
   mpz_mul_2exp (g, g, gz);
@@ -3686,8 +3940,78 @@ mpz_rootrem (mpz_t x, mpz_t r, const mpz_t y, unsigned long z)
 
   mpz_init (u);
   mpz_init (t);
-  bc = (mpz_sizeinbase (y, 2) - 1) / z + 1;
-  mpz_setbit (t, bc);
+
+  if (z == 2)
+    {
+      /* Newton's method for isqrt converges (monotonically decreasing) from
+	 any seed >= floor(sqrt(y)).  Instead of the single-bit seed
+	 2^ceil(bits/2) (~zero correct bits, so ~log2(bits/2) division-based
+	 iterations), build a seed with ~32 correct bits from a hardware
+	 double sqrt of the top limbs; for 384-bit operands the number of
+	 divisions drops from ~8 to 3.
+
+	 Let y_hi = floor (y / 2^s) with s even and 1 <= bits(y_hi) <= 64.
+	 With r = floor(sqrt(y_hi)) + 1 computed exactly (double estimate,
+	 then integer fixup), r^2 >= y_hi + 1, hence
+	 (r * 2^(s/2))^2 >= (y_hi + 1) * 2^s > y,
+	 so the seed r * 2^(s/2) is > sqrt(y) as required. */
+      mp_bitcnt_t bits = mpz_sizeinbase (y, 2);
+      mp_bitcnt_t s = 0;
+      mp_limb_t y_hi, r_est, p1, p0;
+      mp_ptr tp;
+
+      if (bits > GMP_LIMB_BITS)
+	{
+	  mp_size_t i0;
+	  unsigned off;
+
+	  /* Keep the top 63 or 64 bits, whichever makes s even. */
+	  s = (bits - GMP_LIMB_BITS + 1) & ~(mp_bitcnt_t) 1;
+	  i0 = s / GMP_LIMB_BITS;
+	  off = s % GMP_LIMB_BITS;
+	  y_hi = y->_mp_d[i0] >> off;
+	  if (off > 0 && i0 + 1 < y->_mp_size)
+	    y_hi |= y->_mp_d[i0 + 1] << (GMP_LIMB_BITS - off);
+	}
+      else
+	y_hi = y->_mp_d[0];
+
+      r_est = (mp_limb_t) sqrt ((double) y_hi);
+      if (r_est == 0)
+	r_est = 1;
+
+      /* Exact fixup: make r_est the smallest value with r_est^2 > y_hi,
+	 i.e. r_est = floor(sqrt(y_hi)) + 1.  The double estimate is within
+	 a few ulps, so each loop runs at most a couple of iterations.
+	 r_est <= 2^32, so r_est^2 fits in the (p1,p0) double limb. */
+      while (r_est > 1)
+	{
+	  gmp_umul_ppmm (p1, p0, r_est - 1, r_est - 1);
+	  if (p1 == 0 && p0 <= y_hi)
+	    break;
+	  r_est--;
+	}
+      for (;;)
+	{
+	  gmp_umul_ppmm (p1, p0, r_est, r_est);
+	  if (p1 != 0 || p0 > y_hi)
+	    break;
+	  r_est++;
+	}
+
+      /* t = r_est * 2^(s/2).  r_est can be 2^32, which may not fit in
+	 unsigned long on LLP64 targets, so store the limb directly. */
+      tp = MPZ_REALLOC (t, 1);
+      tp[0] = r_est;
+      t->_mp_size = 1;
+      if (s > 0)
+	mpz_mul_2exp (t, t, s / 2);
+    }
+  else
+    {
+      bc = (mpz_sizeinbase (y, 2) - 1) / z + 1;
+      mpz_setbit (t, bc);
+    }
 
   if (z == 2) /* simplify sqrt loop: z-1 == 1 */
     do {

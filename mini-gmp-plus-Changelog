@@ -1,3 +1,44 @@
+2026-07-19: Romain Nosenzo <romain@h3d.ai> (with Claude)
+	Performance work on the small-operand hot paths, driven by
+	benchmarks/benchmark_geometry.cpp (all results verified against the
+	GMP-comparison test suite, an invariant fuzzer, and ASan/UBSan):
+	* mini-gmp.c (mpz_rootrem): for square roots, seed the Newton
+	iteration with an exactly-verified hardware-double sqrt of the top
+	limbs (seed > sqrt(y) proven via integer fixup) instead of the
+	single-bit seed 2^ceil(bits/2).  Cuts division-based iterations from
+	~8 to 3 for 384-bit radicands: sqrt benchmark ~2.3x faster.
+	* mini-gmp.c (mpz_gcd, mpn_gcd_22, mpn_gcd_bin,
+	mpn_make_odd_inplace): the binary-GCD loop now runs on raw limbs in
+	place (fused compare/subtract/shift, pointer swaps) instead of mpz
+	calls, drops to a new register-based 2-limb mpn_gcd_22 base case
+	(previously only 1-limb mpn_gcd_11), and skips the initial division
+	when both operands have the same limb count: gcd benchmark ~2.6x
+	faster.
+	* mini-gmp.c (mpz_div_qr, mpn_div_qr, mpn_div_qr_1_preinv):
+	truncating divisions with dividends up to 16 limbs use stack scratch
+	instead of heap-allocated temporaries; the qp==NULL 1-limb path
+	shifts on the fly and no longer allocates at all.  Removes every
+	malloc/free pair from the sqrt Newton loop and the gcd reduction.
+	* mini-gmp.c (mpn_mul): straight-line 128-bit kernels for 1x1..4x1
+	limb products (the dominant multiply-accumulate shapes in
+	determinant workloads): det3/det4 benchmarks ~5-7% faster.
+	* mini-gmp.c (mpz_mul): the operand-overlap test is skipped on the
+	1x1-limb fast path, which never needs a temporary.
+	* mini-gmp.c, mini-gmp-simd.cpp: the scalar mpn primitives
+	(copyi/copyd/zero/zero_p/cmp/add_n/sub_n/lshift/rshift) are always
+	compiled in mini-gmp.c, even in SIMD builds, so callers can inline
+	them; the SIMD TU keeps only the genuinely vectorized routines
+	(popcount/hamdist/com/and/ior/xor).  Fixes the SIMD build being
+	measurably slower than the non-SIMD build on scalar-heavy paths.
+	* mini-gmp.c (MINI_GMP_NO_STACK_PROTECTOR): six hot functions with
+	explicitly size-checked local buffers opt out of the stack
+	protector (overridable by defining the macro).
+	* CMakeLists.txt: new opt-in options MINI_GMP_NO_STACK_PROTECTOR
+	(build the library with -fno-stack-protector, worth a further
+	~5-10% on small-operand workloads) and MINI_GMP_ENABLE_IPO (LTO);
+	-fno-semantic-interposition is no longer passed on Apple platforms
+	where it is a no-op.
+
 2025-11-10: Bruno Lévy <Bruno.Levy@inria.fr>
 	* mini-gmp.h (MINI_GMP_PLUS_BUFF_SIZE): only define
 	MINI_GMP_PLUS_BUFF_SIZE if not already defined and if
