@@ -129,8 +129,31 @@ endif()
 
 # On GCC/Clang, disable PLT-based symbol interposition within the DSO so the
 # compiler can generate direct intra-library calls, reducing overhead on Linux.
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+# (No-op on Mach-O, where it only produces an unused-argument warning.)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE)
     target_compile_options(mini-gmp-plus PRIVATE -fno-semantic-interposition)
+endif()
+
+# Optional: build the library without stack-smashing protection.  Selected
+# hot functions already opt out individually (see MINI_GMP_NO_STACK_PROTECTOR
+# in mini-gmp.c); disabling it library-wide is worth a further ~5-10% on
+# small-operand workloads, at the cost of stack-smash hardening.
+option(MINI_GMP_NO_STACK_PROTECTOR "Build mini-gmp-plus with -fno-stack-protector (fastest, less hardening)" OFF)
+if(MINI_GMP_NO_STACK_PROTECTOR AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(mini-gmp-plus PRIVATE -fno-stack-protector)
+endif()
+
+# Optional link-time optimization for the library (opt-in; lets the linker
+# inline across mini-gmp.c / mini-mpq.c / mini-gmp-simd.cpp).
+option(MINI_GMP_ENABLE_IPO "Enable interprocedural optimization (LTO) for mini-gmp-plus" OFF)
+if(MINI_GMP_ENABLE_IPO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT mini_gmp_ipo_ok OUTPUT mini_gmp_ipo_msg)
+    if(mini_gmp_ipo_ok)
+        set_target_properties(mini-gmp-plus PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+    else()
+        message(STATUS "IPO not supported: ${mini_gmp_ipo_msg}")
+    endif()
 endif()
 
 # Add C++ wrapper test executable (only if not being built by vcpkg)

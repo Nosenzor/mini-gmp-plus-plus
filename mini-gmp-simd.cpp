@@ -11,22 +11,11 @@
 #include "mini-gmp.h"
 #include <xsimd/xsimd.hpp>
 #include <climits>   /* CHAR_BIT */
-#include <cassert>
-#include <cstring>
 #include <cstdint>
 
 /* GMP_LIMB_BITS is defined inside mini-gmp.c, not in the header. */
 #ifndef GMP_LIMB_BITS
 #  define GMP_LIMB_BITS (sizeof(mp_limb_t) * CHAR_BIT)
-#endif
-
-#if defined(__has_builtin)
-#  if __has_builtin(__builtin_addcll) && __has_builtin(__builtin_subcll)
-#    define MINI_GMP_HAVE_CARRY_BUILTINS 1
-#  endif
-#endif
-#ifndef MINI_GMP_HAVE_CARRY_BUILTINS
-#  define MINI_GMP_HAVE_CARRY_BUILTINS 0
 #endif
 
 namespace {
@@ -62,151 +51,16 @@ namespace {
         return (x * h01) >> 56;
     }
 
-    /* These dependency-heavy primitives are hot in mpz_gcd/mpz_gcdext and
-     * benchmark dramatically slower than the original scalar loops on current
-     * AppleClang/NEON builds, so SIMD builds keep scalar implementations for
-     * them and reserve xsimd for the routines that actually benefit. */
-    static inline int scalar_mpn_cmp(mp_srcptr ap, mp_srcptr bp, mp_size_t n)
-    {
-        while (--n >= 0) {
-            if (ap[n] != bp[n])
-                return ap[n] > bp[n] ? 1 : -1;
-        }
-        return 0;
-    }
-
-    static inline mp_limb_t scalar_mpn_add_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
-    {
-        mp_size_t i;
-#if MINI_GMP_HAVE_CARRY_BUILTINS
-        unsigned long long carry = 0;
-        for (i = 0; i < n; i++) {
-            unsigned long long carry_out;
-            rp[i] = static_cast<mp_limb_t>(__builtin_addcll(
-                static_cast<unsigned long long>(ap[i]),
-                static_cast<unsigned long long>(bp[i]),
-                carry, &carry_out));
-            carry = carry_out;
-        }
-        return static_cast<mp_limb_t>(carry);
-#else
-        mp_limb_t carry;
-
-        for (i = 0, carry = 0; i < n; i++) {
-            mp_limb_t a = ap[i];
-            mp_limb_t b = bp[i];
-            mp_limb_t r = a + carry;
-            carry = (r < carry);
-            r += b;
-            carry += (r < b);
-            rp[i] = r;
-        }
-        return carry;
-#endif
-    }
-
-    static inline mp_limb_t scalar_mpn_sub_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
-    {
-        mp_size_t i;
-#if MINI_GMP_HAVE_CARRY_BUILTINS
-        unsigned long long borrow = 0;
-        for (i = 0; i < n; i++) {
-            unsigned long long borrow_out;
-            rp[i] = static_cast<mp_limb_t>(__builtin_subcll(
-                static_cast<unsigned long long>(ap[i]),
-                static_cast<unsigned long long>(bp[i]),
-                borrow, &borrow_out));
-            borrow = borrow_out;
-        }
-        return static_cast<mp_limb_t>(borrow);
-#else
-        mp_limb_t borrow;
-
-        for (i = 0, borrow = 0; i < n; i++) {
-            mp_limb_t a = ap[i];
-            mp_limb_t b = bp[i];
-            b += borrow;
-            borrow = (b < borrow);
-            borrow += (a < b);
-            rp[i] = a - b;
-        }
-        return borrow;
-#endif
-    }
-
-    static inline mp_limb_t scalar_mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
-    {
-        mp_limb_t high_limb, low_limb;
-        unsigned int tnc;
-        mp_limb_t retval;
-
-        assert(n >= 1);
-        assert(cnt >= 1);
-        assert(cnt < GMP_LIMB_BITS);
-
-        up += n;
-        rp += n;
-
-        tnc = GMP_LIMB_BITS - cnt;
-        low_limb = *--up;
-        retval = low_limb >> tnc;
-        high_limb = (low_limb << cnt);
-
-        while (--n != 0) {
-            low_limb = *--up;
-            *--rp = high_limb | (low_limb >> tnc);
-            high_limb = (low_limb << cnt);
-        }
-        *--rp = high_limb;
-
-        return retval;
-    }
-
-    static inline mp_limb_t scalar_mpn_rshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
-    {
-        mp_limb_t high_limb, low_limb;
-        unsigned int tnc;
-        mp_limb_t retval;
-
-        assert(n >= 1);
-        assert(cnt >= 1);
-        assert(cnt < GMP_LIMB_BITS);
-
-        tnc = GMP_LIMB_BITS - cnt;
-        high_limb = *up++;
-        retval = (high_limb << tnc);
-        low_limb = high_limb >> cnt;
-
-        while (--n != 0) {
-            high_limb = *up++;
-            *rp++ = low_limb | (high_limb << tnc);
-            low_limb = high_limb >> cnt;
-        }
-        *rp = low_limb;
-
-        return retval;
-    }
 } // anonymous namespace
 
 extern "C" {
 
-/* ── trivial memory operations ─────────────────────────────────────────── */
-
-void mpn_copyi(mp_ptr d, mp_srcptr s, mp_size_t n)
-{
-    /* memmove handles the d==s (self-copy) case that arises in mpz_set(r,r). */
-    std::memmove(d, s, static_cast<std::size_t>(n) * sizeof(mp_limb_t));
-}
-
-void mpn_copyd(mp_ptr d, mp_srcptr s, mp_size_t n)
-{
-    std::memmove(d, s, static_cast<std::size_t>(n) * sizeof(mp_limb_t));
-}
-
-void mpn_zero(mp_ptr rp, mp_size_t n)
-{
-    std::memset(rp, 0, static_cast<std::size_t>(n) * sizeof(mp_limb_t));
-}
+/* The small scalar primitives (mpn_copyi/copyd/zero/cmp/zero_p/add_n/sub_n/
+ * lshift/rshift) are compiled in mini-gmp.c even in SIMD builds: they are
+ * dependency-heavy, called from hot mpz_* paths, and benchmark dramatically
+ * slower when outlined into this separate translation unit (the C callers can
+ * no longer inline them).  This file only defines the routines that genuinely
+ * benefit from vectorization. */
 
 /* ── bitwise complement ─────────────────────────────────────────────────── */
 
@@ -218,38 +72,6 @@ void mpn_com(mp_ptr rp, mp_srcptr up, mp_size_t n)
         (batch_t::load_unaligned(up + i) ^ ones).store_unaligned(rp + i);
     for (; i < n; i++)
         rp[i] = ~up[i];
-}
-
-/* ── comparison (scalar fallback) ───────────────────────────────────────── */
-
-int mpn_cmp(mp_srcptr ap, mp_srcptr bp, mp_size_t n)
-{
-    return scalar_mpn_cmp(ap, bp, n);
-}
-
-/* ── addition with carry (scalar fallback) ──────────────────────────────── */
-mp_limb_t mpn_add_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
-{
-    return scalar_mpn_add_n(rp, ap, bp, n);
-}
-
-/* ── subtraction with borrow (scalar fallback) ──────────────────────────── */
-
-mp_limb_t mpn_sub_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
-{
-    return scalar_mpn_sub_n(rp, ap, bp, n);
-}
-
-/* ── left shift (scalar fallback, overlap-safe like upstream) ───────────── */
-mp_limb_t mpn_lshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
-{
-    return scalar_mpn_lshift(rp, up, n, cnt);
-}
-
-/* ── right shift (scalar fallback, overlap-safe like upstream) ──────────── */
-mp_limb_t mpn_rshift(mp_ptr rp, mp_srcptr up, mp_size_t n, unsigned int cnt)
-{
-    return scalar_mpn_rshift(rp, up, n, cnt);
 }
 
 /* ── population count (batch popcount + horizontal reduce) ───────────────── *
@@ -346,28 +168,6 @@ void mpn_xor_n(mp_ptr rp, mp_srcptr ap, mp_srcptr bp, mp_size_t n)
             .store_unaligned(rp + i);
     for (; i < n; i++)
         rp[i] = ap[i] ^ bp[i];
-}
-
-/* ── vectorised zero-test ───────────────────────────────────────────────── *
- *
- * Scan MSB→LSB: high limbs are most likely non-zero in normalised numbers,
- * so we reject early.  Uses batch OR to detect any non-zero lane.
- */
-int mpn_zero_p(mp_srcptr rp, mp_size_t n)
-{
-    mp_size_t i = n;
-    const batch_t zero = batch_t(uint64_t(0));
-
-    while (i >= static_cast<mp_size_t>(W)) {
-        i -= static_cast<mp_size_t>(W);
-        if (xsimd::any(batch_t::load_unaligned(rp + i) != zero))
-            return 0;
-    }
-    while (i > 0) {
-        if (rp[--i] != 0)
-            return 0;
-    }
-    return 1;
 }
 
 } /* extern "C" */
