@@ -197,6 +197,23 @@ MINI_GMP_PLUS_API void mpz_addmul (mpz_t, const mpz_t, const mpz_t);
 MINI_GMP_PLUS_API void mpz_submul_ui (mpz_t, const mpz_t, unsigned long int);
 MINI_GMP_PLUS_API void mpz_submul (mpz_t, const mpz_t, const mpz_t);
 
+/* [mini-gmp-plus] Fused primitives for small linear algebra:
+     mpz_mul_add_mul (r, a, b, c, d):  r = a*b + c*d
+     mpz_mul_sub_mul (r, a, b, c, d):  r = a*b - c*d   (2x2 determinant)
+   Both products are formed in stack scratch and combined with a single sign
+   resolution and normalization, which is appreciably cheaper than the
+   equivalent mpz_mul + mpz_addmul/mpz_submul pair.  r may alias any operand. */
+MINI_GMP_PLUS_API void mpz_mul_add_mul (mpz_t, const mpz_t, const mpz_t,
+					const mpz_t, const mpz_t);
+MINI_GMP_PLUS_API void mpz_mul_sub_mul (mpz_t, const mpz_t, const mpz_t,
+					const mpz_t, const mpz_t);
+
+/* [mini-gmp-plus] r = sum_{i<n} u[i]*v[i].  The terms are accumulated in
+   stack scratch with a single sign reconciliation and normalization at the
+   end, which is cheaper than a chain of mpz_addmul.  r may alias any input. */
+MINI_GMP_PLUS_API void mpz_dot_product (mpz_t, size_t,
+					const mpz_srcptr *, const mpz_srcptr *);
+
 MINI_GMP_PLUS_API void mpz_cdiv_qr (mpz_t, mpz_t, const mpz_t, const mpz_t);
 MINI_GMP_PLUS_API void mpz_fdiv_qr (mpz_t, mpz_t, const mpz_t, const mpz_t);
 MINI_GMP_PLUS_API void mpz_tdiv_qr (mpz_t, mpz_t, const mpz_t, const mpz_t);

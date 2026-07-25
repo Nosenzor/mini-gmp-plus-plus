@@ -17,105 +17,110 @@ using Matrix4 = StaticMatrix<4, 4>;
 
 namespace detail {
 
-// Compute det3 of a 3×3 matrix into `out` using Sarrus rule.
-// `out` is reset to zero on entry; `t` is a scratch buffer (content undefined).
-// Both must be pre-initialised (default-constructed MiniMPZ is fine).
-//
-// Sarrus: +a00*a11*a22  +a01*a12*a20  +a02*a10*a21
-//         -a02*a11*a20  -a00*a12*a21  -a01*a10*a22
-inline void compute_det3_fused(
-    MiniMPZ& out, MiniMPZ& t,
-    const MiniMPZ& a00, const MiniMPZ& a01, const MiniMPZ& a02,
-    const MiniMPZ& a10, const MiniMPZ& a11, const MiniMPZ& a12,
-    const MiniMPZ& a20, const MiniMPZ& a21, const MiniMPZ& a22)
+// 2×2 minor of the rows (r0, r1) in columns (ci, cj), i.e.
+//   | r0[ci] r0[cj] |
+//   | r1[ci] r1[cj] |   =  r0[ci]*r1[cj] - r0[cj]*r1[ci]
+// One fused library call, no temporaries.
+inline void minor2(MiniMPZ& out,
+                   const MiniMPZ& r0ci, const MiniMPZ& r0cj,
+                   const MiniMPZ& r1ci, const MiniMPZ& r1cj)
 {
-    mpz_set_ui(out.get_mpz(), 0);
-
-    mpz_mul(t.get_mpz(), a11.get_mpz(), a22.get_mpz());
-    mpz_addmul(out.get_mpz(), a00.get_mpz(), t.get_mpz());
-
-    mpz_mul(t.get_mpz(), a12.get_mpz(), a20.get_mpz());
-    mpz_addmul(out.get_mpz(), a01.get_mpz(), t.get_mpz());
-
-    mpz_mul(t.get_mpz(), a10.get_mpz(), a21.get_mpz());
-    mpz_addmul(out.get_mpz(), a02.get_mpz(), t.get_mpz());
-
-    mpz_mul(t.get_mpz(), a11.get_mpz(), a20.get_mpz());
-    mpz_submul(out.get_mpz(), a02.get_mpz(), t.get_mpz());
-
-    mpz_mul(t.get_mpz(), a12.get_mpz(), a21.get_mpz());
-    mpz_submul(out.get_mpz(), a00.get_mpz(), t.get_mpz());
-
-    mpz_mul(t.get_mpz(), a10.get_mpz(), a22.get_mpz());
-    mpz_submul(out.get_mpz(), a01.get_mpz(), t.get_mpz());
+    mpz_mul_sub_mul(out.get_mpz(), r0ci.get_mpz(), r1cj.get_mpz(),
+                                   r0cj.get_mpz(), r1ci.get_mpz());
 }
 
 }  // namespace detail
 
 // --- Dot products -------------------------------------------------------
 
-// Fused 4D dot product: 1 mpz_mul + 3 mpz_addmul — zero C++ temporaries.
-inline MiniMPZ dot_product4(const Vector4& lhs, const Vector4& rhs) {
-    MiniMPZ result;
-    mpz_mul   (result.get_mpz(), lhs[0].get_mpz(), rhs[0].get_mpz());
-    mpz_addmul(result.get_mpz(), lhs[1].get_mpz(), rhs[1].get_mpz());
-    mpz_addmul(result.get_mpz(), lhs[2].get_mpz(), rhs[2].get_mpz());
-    mpz_addmul(result.get_mpz(), lhs[3].get_mpz(), rhs[3].get_mpz());
-    return result;
-}
-
-// Generic fused dot product for any fixed dimension N.
+// Fused dot product of any fixed dimension: a single mpz_dot_product call,
+// which accumulates every term in stack scratch and normalizes once.
 template<int N>
 inline MiniMPZ dot_product(const StaticVector<N>& lhs, const StaticVector<N>& rhs) {
     static_assert(N > 0, "dot_product requires N > 0");
+    // A std::array of MiniMPZ is not an array of mpz_t, so pass limb pointers.
+    mpz_srcptr u[N], v[N];
+    for (int i = 0; i < N; ++i) {
+        u[i] = lhs[i].get_mpz();
+        v[i] = rhs[i].get_mpz();
+    }
     MiniMPZ result;
-    mpz_mul(result.get_mpz(), lhs[0].get_mpz(), rhs[0].get_mpz());
-    for (int i = 1; i < N; ++i)
-        mpz_addmul(result.get_mpz(), lhs[i].get_mpz(), rhs[i].get_mpz());
+    mpz_dot_product(result.get_mpz(), N, u, v);
     return result;
+}
+
+// 4D dot product.
+inline MiniMPZ dot_product4(const Vector4& lhs, const Vector4& rhs) {
+    return dot_product<4>(lhs, rhs);
 }
 
 // --- Determinants -------------------------------------------------------
 
-// 2×2 determinant: 1 mpz_mul + 1 mpz_submul — zero C++ temporaries.
+// 2×2 determinant: exactly one fused mpz_mul_sub_mul.
 inline MiniMPZ determinant2(const Matrix2& m) {
     MiniMPZ result;
-    mpz_mul   (result.get_mpz(), m[0].get_mpz(), m[3].get_mpz());
-    mpz_submul(result.get_mpz(), m[1].get_mpz(), m[2].get_mpz());
+    mpz_mul_sub_mul(result.get_mpz(), m[0].get_mpz(), m[3].get_mpz(),
+                                      m[1].get_mpz(), m[2].get_mpz());
     return result;
 }
 
-// 3×3 determinant via Sarrus: 6 multiply-accumulate ops, 1 scratch temporary.
+// 3×3 determinant via cofactor expansion along row 0:
+//   det = a00*(a11*a22 - a12*a21)
+//       - a01*(a10*a22 - a12*a20)
+//       + a02*(a10*a21 - a11*a20)
+// 3 fused 2×2 minors + 1 fused combine + 1 addmul = 5 library calls, versus
+// 13 for the Sarrus form (which expands 6 triple products separately).
 inline MiniMPZ determinant3(const Matrix3& m) {
-    MiniMPZ result, t;
-    detail::compute_det3_fused(result, t,
-        m[0], m[1], m[2],
-        m[3], m[4], m[5],
-        m[6], m[7], m[8]);
+    MiniMPZ result, m0, m1, m2;
+
+    detail::minor2(m0, m[4], m[5], m[7], m[8]);   // a11*a22 - a12*a21
+    detail::minor2(m1, m[3], m[5], m[6], m[8]);   // a10*a22 - a12*a20
+    detail::minor2(m2, m[3], m[4], m[6], m[7]);   // a10*a21 - a11*a20
+
+    mpz_mul_sub_mul(result.get_mpz(), m[0].get_mpz(), m0.get_mpz(),
+                                      m[1].get_mpz(), m1.get_mpz());
+    mpz_addmul(result.get_mpz(), m[2].get_mpz(), m2.get_mpz());
     return result;
 }
 
-// 4×4 determinant via cofactor expansion along row 0.
-// Uses one reusable 3×3 sub-result and one scratch temporary — 2 MiniMPZ objects total.
+// 4×4 determinant via Laplace expansion by complementary 2×2 minors
+// (expansion along rows 0-1).  With A_ij the minor of rows {0,1} in columns
+// {i,j} and B_ij that of rows {2,3}:
+//
+//   det = A01*B23 - A02*B13 + A03*B12 + A12*B03 - A13*B02 + A23*B01
+//
+// 12 fused minors + 3 fused combines + 2 adds = 17 library calls, versus 56
+// for cofactor expansion through four full 3×3 determinants.  The minors are
+// also reused across terms, so far fewer limb products are formed overall.
 inline MiniMPZ determinant4(const Matrix4& m) {
-    MiniMPZ result, sub, t;
+    MiniMPZ a01, a02, a03, a12, a13, a23;
+    MiniMPZ b01, b02, b03, b12, b13, b23;
 
-    // C00: minor(0,0) — rows 1-3, cols 1-3  (sign +)
-    detail::compute_det3_fused(sub, t, m[5], m[6], m[7], m[9], m[10], m[11], m[13], m[14], m[15]);
-    mpz_addmul(result.get_mpz(), m[0].get_mpz(), sub.get_mpz());
+    // Minors of rows 0,1 (entries m[0..3] and m[4..7]).
+    detail::minor2(a01, m[0], m[1], m[4], m[5]);
+    detail::minor2(a02, m[0], m[2], m[4], m[6]);
+    detail::minor2(a03, m[0], m[3], m[4], m[7]);
+    detail::minor2(a12, m[1], m[2], m[5], m[6]);
+    detail::minor2(a13, m[1], m[3], m[5], m[7]);
+    detail::minor2(a23, m[2], m[3], m[6], m[7]);
 
-    // C01: minor(0,1) — rows 1-3, cols 0,2,3  (sign -)
-    detail::compute_det3_fused(sub, t, m[4], m[6], m[7], m[8], m[10], m[11], m[12], m[14], m[15]);
-    mpz_submul(result.get_mpz(), m[1].get_mpz(), sub.get_mpz());
+    // Minors of rows 2,3 (entries m[8..11] and m[12..15]).
+    detail::minor2(b01, m[8],  m[9],  m[12], m[13]);
+    detail::minor2(b02, m[8],  m[10], m[12], m[14]);
+    detail::minor2(b03, m[8],  m[11], m[12], m[15]);
+    detail::minor2(b12, m[9],  m[10], m[13], m[14]);
+    detail::minor2(b13, m[9],  m[11], m[13], m[15]);
+    detail::minor2(b23, m[10], m[11], m[14], m[15]);
 
-    // C02: minor(0,2) — rows 1-3, cols 0,1,3  (sign +)
-    detail::compute_det3_fused(sub, t, m[4], m[5], m[7], m[8], m[9], m[11], m[12], m[13], m[15]);
-    mpz_addmul(result.get_mpz(), m[2].get_mpz(), sub.get_mpz());
-
-    // C03: minor(0,3) — rows 1-3, cols 0,1,2  (sign -)
-    detail::compute_det3_fused(sub, t, m[4], m[5], m[6], m[8], m[9], m[10], m[12], m[13], m[14]);
-    mpz_submul(result.get_mpz(), m[3].get_mpz(), sub.get_mpz());
-
+    MiniMPZ result, t2, t3;
+    mpz_mul_sub_mul(result.get_mpz(), a01.get_mpz(), b23.get_mpz(),
+                                      a02.get_mpz(), b13.get_mpz());
+    mpz_mul_add_mul(t2.get_mpz(),     a03.get_mpz(), b12.get_mpz(),
+                                      a12.get_mpz(), b03.get_mpz());
+    mpz_mul_sub_mul(t3.get_mpz(),     a23.get_mpz(), b01.get_mpz(),
+                                      a13.get_mpz(), b02.get_mpz());
+    mpz_add(result.get_mpz(), result.get_mpz(), t2.get_mpz());
+    mpz_add(result.get_mpz(), result.get_mpz(), t3.get_mpz());
     return result;
 }
 

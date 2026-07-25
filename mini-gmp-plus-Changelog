@@ -1,3 +1,38 @@
+2026-07-25: Romain Nosenzo <romain@h3d.ai> (with Claude)
+	Small linear algebra: fused multiply-accumulate primitives, plus
+	cheaper determinant algorithms in the geometry workloads.  Profiling
+	the 2x2/3x3/4x4 determinant and dot-product kernels showed that the
+	body of mpz_aorsmul_fast was ~50% of self time — more than all the
+	limb arithmetic it performs — because every mpz_addmul/mpz_submul pays
+	a full sign dispatch, magnitude comparison, normalization and
+	reallocation.  The fix is to make each library call do more work.
+	* mini-gmp.c, mini-gmp.h (mpz_mul_add_mul, mpz_mul_sub_mul): new
+	public primitives computing r = a*b + c*d and r = a*b - c*d (a 2x2
+	determinant).  Both products are formed in stack scratch and combined
+	with a single sign resolution and normalization.  r may alias any
+	operand.  Products larger than 32 limbs take a generic path.
+	* mini-gmp.c, mini-gmp.h (mpz_dot_product): new public primitive
+	computing r = sum u[i]*v[i].  Positive and negative terms go to two
+	stack accumulators — one mpn_mul and one mpn_add per term, with no
+	per-term sign comparison — reconciled by a single subtraction.  Much
+	faster than an mpz_addmul chain once products exceed the inline limb
+	buffer (-57% at 192-bit operands, where the chain starts allocating).
+	* tests/geometry_workloads.hpp: determinant3 now uses cofactor
+	expansion (5 library calls, was 13 for Sarrus); determinant4 uses
+	Laplace expansion by complementary 2x2 minors (17 calls, was 56 via
+	four full 3x3 determinants), which also reuses each minor across
+	terms; determinant2 and dot_product are single fused calls.
+	* tests/t-fused.c, tests/CMakeLists.txt: regression tests for the new
+	primitives (random operands spanning the 32-limb cap, every sign
+	combination, zero terms, exact cancellation, and r aliasing each
+	operand).
+	Geometry benchmark, Apple M2, Release+SIMD, interleaved best-of-4,
+	checksums unchanged: det4 496 -> 275 ns/op (1.80x), det3 111 -> 91
+	(1.22x), det2 24.2 -> 22.2 (1.09x), dot4 46.9 -> 44.0 (1.07x).
+	The determinant gains grow with entry size: at 128-bit entries det4 is
+	3.6x and det3 2.2x, since the old form's intermediates overflowed the
+	5-limb inline buffer into the heap.
+
 2026-07-19: Romain Nosenzo <romain@h3d.ai> (with Claude)
 	Performance work on the small-operand hot paths, driven by
 	benchmarks/benchmark_geometry.cpp (all results verified against the

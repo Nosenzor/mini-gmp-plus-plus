@@ -2717,6 +2717,264 @@ mpz_submul (mpz_t r, const mpz_t u, const mpz_t v)
   }
 }
 
+/* Largest product, in limbs, that the fused primitives below keep in stack
+   scratch.  32 limbs = 2048 bits per product; larger operands take the
+   generic mpz path.  */
+#define MINI_GMP_FUSED_LIMBS 32
+
+/* Fused 2x2 multiply-accumulate: r = a*b + c*d (add != 0), or
+   r = a*b - c*d (add == 0).
+
+   This is the fundamental primitive of small linear algebra: 2x2
+   determinants, cross products and two-term dot products.  Both products are
+   formed in stack scratch and combined with a *single* sign resolution,
+   magnitude comparison, normalization and reallocation of r, instead of the
+   two independent mpz-level steps (mpz_mul followed by mpz_addmul or
+   mpz_submul) a caller would otherwise perform.
+
+   Nothing is written to r until every operand has been consumed, so r may
+   alias any of a, b, c, d.  */
+static MINI_GMP_NO_STACK_PROTECTOR void
+mpz_mul_aors_mul (mpz_t r,
+		  const mpz_t a, const mpz_t b,
+		  const mpz_t c, const mpz_t d,
+		  int add)
+{
+  mp_size_t an, bn, cn, dn, pn, qn, rn;
+  mp_limb_t pbuf[MINI_GMP_FUSED_LIMBS + 1];
+  mp_limb_t qbuf[MINI_GMP_FUSED_LIMBS + 1];
+  int psign, qsign, cmp;
+  mp_ptr rp;
+
+  an = GMP_ABS (a->_mp_size);
+  bn = GMP_ABS (b->_mp_size);
+  cn = GMP_ABS (c->_mp_size);
+  dn = GMP_ABS (d->_mp_size);
+
+  /* Degenerate cases: one or both products vanish. */
+  if (an == 0 || bn == 0)
+    {
+      if (cn == 0 || dn == 0)
+	{
+	  r->_mp_size = 0;
+	  return;
+	}
+      mpz_mul (r, c, d);
+      if (!add)
+	r->_mp_size = - r->_mp_size;
+      return;
+    }
+  if (cn == 0 || dn == 0)
+    {
+      mpz_mul (r, a, b);
+      return;
+    }
+
+  if (an + bn > MINI_GMP_FUSED_LIMBS || cn + dn > MINI_GMP_FUSED_LIMBS)
+    {
+      /* Products exceed the stack scratch: generic path. */
+      mpz_t t, u;
+      mpz_init (t);
+      mpz_init (u);
+      mpz_mul (t, a, b);
+      mpz_mul (u, c, d);
+      if (add)
+	mpz_add (r, t, u);
+      else
+	mpz_sub (r, t, u);
+      mpz_clear (t);
+      mpz_clear (u);
+      return;
+    }
+
+  pn = an + bn;
+  if (an >= bn)
+    mpn_mul (pbuf, a->_mp_d, an, b->_mp_d, bn);
+  else
+    mpn_mul (pbuf, b->_mp_d, bn, a->_mp_d, an);
+  pn -= (pbuf[pn - 1] == 0);
+
+  qn = cn + dn;
+  if (cn >= dn)
+    mpn_mul (qbuf, c->_mp_d, cn, d->_mp_d, dn);
+  else
+    mpn_mul (qbuf, d->_mp_d, dn, c->_mp_d, cn);
+  qn -= (qbuf[qn - 1] == 0);
+
+  /* Effective sign of each term; the second is flipped when subtracting. */
+  psign = (a->_mp_size ^ b->_mp_size) < 0;
+  qsign = ((c->_mp_size ^ d->_mp_size) < 0) ^ (add == 0);
+
+  if (psign == qsign)
+    {
+      /* Same sign: add magnitudes, result keeps that sign. */
+      mp_limb_t cy;
+
+      rn = GMP_MAX (pn, qn);
+      if (pn >= qn)
+	cy = mpn_add (pbuf, pbuf, pn, qbuf, qn);
+      else
+	cy = mpn_add (pbuf, qbuf, qn, pbuf, pn);
+      pbuf[rn] = cy;
+      rn += (cy != 0);
+
+      rp = MPZ_REALLOC (r, rn);
+      mpn_copyi (rp, pbuf, rn);
+      r->_mp_size = psign ? -rn : rn;
+      return;
+    }
+
+  /* Opposite signs: subtract the smaller magnitude from the larger. */
+  cmp = mpn_cmp4 (pbuf, pn, qbuf, qn);
+  if (cmp == 0)
+    {
+      r->_mp_size = 0;
+      return;
+    }
+  if (cmp > 0)
+    {
+      gmp_assert_nocarry (mpn_sub (pbuf, pbuf, pn, qbuf, qn));
+      rn = mpn_normalized_size (pbuf, pn);
+      rp = MPZ_REALLOC (r, rn);
+      mpn_copyi (rp, pbuf, rn);
+      r->_mp_size = psign ? -rn : rn;
+    }
+  else
+    {
+      gmp_assert_nocarry (mpn_sub (qbuf, qbuf, qn, pbuf, pn));
+      rn = mpn_normalized_size (qbuf, qn);
+      rp = MPZ_REALLOC (r, rn);
+      mpn_copyi (rp, qbuf, rn);
+      r->_mp_size = qsign ? -rn : rn;
+    }
+}
+
+void
+mpz_mul_add_mul (mpz_t r, const mpz_t a, const mpz_t b,
+		 const mpz_t c, const mpz_t d)
+{
+  mpz_mul_aors_mul (r, a, b, c, d, 1);
+}
+
+void
+mpz_mul_sub_mul (mpz_t r, const mpz_t a, const mpz_t b,
+		 const mpz_t c, const mpz_t d)
+{
+  mpz_mul_aors_mul (r, a, b, c, d, 0);
+}
+
+/* Most terms mpz_dot_product handles without leaving stack scratch. */
+#define MINI_GMP_DOT_TERMS 64
+
+/* Add {tp,tn} into the magnitude accumulator {acc,accn} in place, returning
+   the new size.  acc must have room for one limb beyond max(accn,tn).  */
+static inline mp_size_t
+mini_gmp_acc_add (mp_ptr acc, mp_size_t accn, mp_srcptr tp, mp_size_t tn)
+{
+  mp_limb_t cy;
+
+  if (accn == 0)
+    {
+      mpn_copyi (acc, tp, tn);
+      return tn;
+    }
+  if (accn >= tn)
+    cy = mpn_add (acc, acc, accn, tp, tn);
+  else
+    {
+      cy = mpn_add (acc, tp, tn, acc, accn);
+      accn = tn;
+    }
+  if (cy != 0)
+    acc[accn++] = cy;
+  return accn;
+}
+
+/* r = sum_{i<n} u[i]*v[i].
+
+   The positive and negative terms are summed into two stack accumulators —
+   each term costing just one mpn_mul and one mpn_add, with no sign
+   comparison — and reconciled by a single subtraction at the end.  That
+   replaces the per-term sign dispatch, magnitude comparison, normalization
+   and reallocation of an mpz_addmul chain.  r may alias any input.  */
+MINI_GMP_NO_STACK_PROTECTOR
+void
+mpz_dot_product (mpz_t r, size_t n, const mpz_srcptr *u, const mpz_srcptr *v)
+{
+  mp_limb_t pos[MINI_GMP_FUSED_LIMBS + 8];
+  mp_limb_t neg[MINI_GMP_FUSED_LIMBS + 8];
+  mp_limb_t prod[MINI_GMP_FUSED_LIMBS];
+  mp_size_t pn = 0, nn = 0;
+  size_t i;
+  int cmp;
+  mp_size_t rn;
+  mp_ptr rp;
+
+  /* Validate up front so the accumulation loop needs no size checks. */
+  if (n > MINI_GMP_DOT_TERMS)
+    goto generic;
+  for (i = 0; i < n; i++)
+    if (GMP_ABS (u[i]->_mp_size) + GMP_ABS (v[i]->_mp_size)
+	> MINI_GMP_FUSED_LIMBS)
+      goto generic;
+
+  for (i = 0; i < n; i++)
+    {
+      mp_size_t un = GMP_ABS (u[i]->_mp_size);
+      mp_size_t vn = GMP_ABS (v[i]->_mp_size);
+      mp_size_t tn;
+
+      if (un == 0 || vn == 0)
+	continue;
+
+      tn = un + vn;
+      if (un >= vn)
+	mpn_mul (prod, u[i]->_mp_d, un, v[i]->_mp_d, vn);
+      else
+	mpn_mul (prod, v[i]->_mp_d, vn, u[i]->_mp_d, un);
+      tn -= (prod[tn - 1] == 0);
+
+      if ((u[i]->_mp_size ^ v[i]->_mp_size) < 0)
+	nn = mini_gmp_acc_add (neg, nn, prod, tn);
+      else
+	pn = mini_gmp_acc_add (pos, pn, prod, tn);
+    }
+
+  cmp = mpn_cmp4 (pos, pn, neg, nn);
+  if (cmp == 0)
+    {
+      r->_mp_size = 0;
+      return;
+    }
+  if (cmp > 0)
+    {
+      gmp_assert_nocarry (mpn_sub (pos, pos, pn, neg, nn));
+      rn = mpn_normalized_size (pos, pn);
+      rp = MPZ_REALLOC (r, rn);
+      mpn_copyi (rp, pos, rn);
+      r->_mp_size = rn;
+    }
+  else
+    {
+      gmp_assert_nocarry (mpn_sub (neg, neg, nn, pos, pn));
+      rn = mpn_normalized_size (neg, nn);
+      rp = MPZ_REALLOC (r, rn);
+      mpn_copyi (rp, neg, rn);
+      r->_mp_size = -rn;
+    }
+  return;
+
+generic:
+  {
+    mpz_t acc;
+    mpz_init (acc);
+    for (i = 0; i < n; i++)
+      mpz_addmul (acc, u[i], v[i]);
+    mpz_swap (r, acc);
+    mpz_clear (acc);
+  }
+}
+
 
 /* MPZ division */
 enum mpz_div_round_mode { GMP_DIV_FLOOR, GMP_DIV_CEIL, GMP_DIV_TRUNC };
