@@ -1,8 +1,8 @@
 {
-  "$comment": "Development manifest: the dependencies needed to BUILD this repository with the vcpkg toolchain. The port manifest that packages mini-gmp-plus for consumers lives in packaging/vcpkg/mini-gmp-plus/vcpkg.json.",
-  "name": "mini-gmp-plus-dev",
+  "$comment": "Development manifest: the dependencies needed to BUILD this repository with the vcpkg toolchain. The port manifest that packages mini-gmp-plus-plus for consumers lives in packaging/vcpkg/mini-gmp-plus-plus/vcpkg.json.",
+  "name": "mini-gmp-plus-plus-dev",
   "version-string": "0.0.0",
-  "description": "Build-time dependencies for developing mini-gmp-plus",
+  "description": "Build-time dependencies for developing mini-gmp-plus-plus",
   "dependencies": [
     "xsimd"
   ]

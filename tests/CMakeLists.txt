@@ -2,7 +2,7 @@
 # Bruno Levy, November 2025
 
 # GMP is needed by the test programs (that do the same computations
-#  with gmp and mini-gmp-plus and compare the results)
+#  with gmp and mini-gmp-plus-plus and compare the results)
 # GMP is found by pkgconfig (works under Linux, Mac, and Windows)
 # Under windows, GMP is installed by vcpkg,
 #  For this to work under Windows, one needs to:
@@ -12,7 +12,7 @@
 #  In addition, for the test programs to find their DLLs,
 #  one needs to add to the path:
 #   - VCPKG_ROOT/installed/x64-windows/<conf>/bin  (where vcpkg installs the DLLs)
-#   - the directory where libmini-gmp-plus.dll will be generated
+#   - the directory where libmini-gmp-plus-plus.dll will be generated
 #        that is, ${{ github.workspace }}/build/${{ matrix.config }}
 #  see the build.yml github action, 'Set paths' step
 
@@ -21,7 +21,7 @@ pkg_check_modules(gmp REQUIRED IMPORTED_TARGET gmp)
 include_directories(${gmp_INCLUDE_DIRS})
 
 # These three files are systematically used by each test, made it an object lib
-add_library(mini-gmp-plus-test-lib OBJECT hex-random.c mini-random.c testutils.c)
+add_library(mini-gmp-plus-plus-test-lib OBJECT hex-random.c mini-random.c testutils.c)
 
 set(MINI_GMP_TESTS
    t-add t-sub t-mul t-invert t-div t-div_2exp
@@ -36,7 +36,7 @@ set(MINI_GMP_TESTS
 add_executable(debug_simd_test debug_simd_test.cpp test_nonsimd_wrappers.c)
 target_include_directories(debug_simd_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(
-    debug_simd_test mini-gmp-plus PkgConfig::gmp
+    debug_simd_test mini-gmp-plus-plus PkgConfig::gmp
 )
 if(UNIX)
    target_link_libraries(debug_simd_test m)
@@ -50,12 +50,12 @@ foreach(T ${MINI_GMP_TESTS})
        add_executable(${T} ${T}.cpp test_nonsimd_wrappers.c)
        target_include_directories(${T} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
        target_link_libraries(
-           ${T} mini-gmp-plus PkgConfig::gmp
+           ${T} mini-gmp-plus-plus PkgConfig::gmp
        )
    else()
        add_executable(${T} ${T}.c)
        target_link_libraries(
-           ${T} mini-gmp-plus mini-gmp-plus-test-lib PkgConfig::gmp
+           ${T} mini-gmp-plus-plus mini-gmp-plus-plus-test-lib PkgConfig::gmp
        )
    endif()
    

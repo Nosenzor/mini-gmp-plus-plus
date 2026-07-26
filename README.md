@@ -1,11 +1,11 @@
-# mini-gmp-plus
+# mini-gmp-plus-plus
 
 This is a fork of the mini version of the
 [GNU Multi-Precision library](https://gmplib.org/)
 with some patches/optimizations for usage in numerical geometry
 and easy-to-use CMakeList (tested under Windows, Linux, Mac).
 
-My changes are listed in [mini-gmp-plus-Changelog](mini-gmp-plus-Changelog),
+My changes are listed in [mini-gmp-plus-plus-Changelog](mini-gmp-plus-plus-Changelog),
 and indicated by `[Bruno Levy]` tags in the sources, with the date and reason
 for the modification.
 
@@ -34,14 +34,15 @@ and Windows.
 
 Features and specificities
 --------------------------
-As compared to `mini-gmp`, `mini-gmp-plus` has the following differences:
+As compared to `mini-gmp`, `mini-gmp-plus-plus` has the following differences:
 - _limitation_: limb size is _fixed_ as 64 bits
 - numbers smaller than a certain size (5 limbs) are stored in the `mpz_t`
   structure for better multithreading (avoids most dynamic allocations)
 - the file [bitops64.h](bitops64.h), not part of mini-gmp, contains some
   wrappers for efficient bit operations on 64-bit numbers, for GCC, Clang and
   VisualC++ using these compiler's intrinsics
-- `mini-gmp-plus` is compiled as a dynamic library
+- `mini-gmp-plus-plus` is compiled as a dynamic library by default; static
+  builds are also supported (`-DBUILD_SHARED_LIBS=OFF`)
 - [CMakeLists.txt](CMakeLists.txt) optionally builds and runs non-regression
   tests using CTest, use `cmake -DMINI_GMP_PLUS_WITH_TESTS=1` to compile and
   run the testsuite.

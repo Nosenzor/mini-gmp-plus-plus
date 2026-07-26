@@ -1,16 +1,16 @@
 # AGENTS.md
 
 ## Scope and Intent
-- `mini-gmp-plus` is a fork of GNU `mini-gmp` optimized for numerical geometry workloads with mostly small integers.
+- `mini-gmp-plus-plus` is a fork of GNU `mini-gmp` optimized for numerical geometry workloads with mostly small integers.
 - Core design choices: fixed 64-bit limbs (`mp_limb_t` in `mini-gmp.h`), stack buffer for small `mpz_t` values (`MINI_GMP_PLUS_BUFF_SIZE`, default 5), and compiler-specific 64-bit intrinsics (`bitops64.h`).
-- The library is built as a shared library (`mini-gmp-plus`), with a header-only C++ wrapper class `MiniMPZ` layered on top.
+- The library is built as a shared library by default (`mini-gmp-plus-plus`, static also supported via `BUILD_SHARED_LIBS=OFF`), with header-only C++ wrapper classes `MiniMPZ` and `MiniMPF` layered on top.
 
 ## Codebase Map (Read These First)
 - `mini-gmp.c` + `mini-gmp.h`: C big-integer core (`mpn_*`, `mpz_*` APIs, memory model, export macros).
 - `mini-mpq.c` + `mini-mpq.h`: rational arithmetic (`mpq_*`) implemented on top of `mpz`.
 - `mini-gmp-simd.cpp`: optional SIMD implementations of selected `mpn_*` primitives (enabled by `MINI_GMP_SIMD`).
 - `MiniMPZ.hpp`: inline C++ wrapper in global scope; owns one `mpz_t` and forwards operations to `mpz_*`.
-- `tests/t-*.c` + `tests/CMakeLists.txt`: regression suite comparing mini-gmp-plus behavior with system GMP.
+- `tests/t-*.c` + `tests/CMakeLists.txt`: regression suite comparing mini-gmp-plus-plus behavior with system GMP.
 - `tests/test_MiniMPZ.cpp`: C++ wrapper tests using only `<cassert>` and `main()`.
 
 ## Build and Test Workflows
@@ -26,11 +26,11 @@
 - Use integer literal suffixes when constructing `MiniMPZ` from literals in tests/examples (e.g., `42L`, `42UL`), matching existing tests.
 - `MiniMPZ` binary operators return by value via local `result` and `mpz_*` call; compound ops mutate `*this` and return reference.
 - Move operations in `MiniMPZ` raw-copy the underlying `__mpz_struct` then `mpz_init` the moved-from object.
-- For C-level behavior changes, preserve GMP compatibility expectations validated by paired mini-gmp-plus vs GMP tests.
+- For C-level behavior changes, preserve GMP compatibility expectations validated by paired mini-gmp-plus-plus vs GMP tests.
 
 ## Integration and Packaging
-- Consumer contract is CMake package usage: `find_package(mini-gmp-plus CONFIG REQUIRED)` + `target_link_libraries(... mini-gmp-plus::mini-gmp-plus)` (see `usage`, `example_CMakeLists.txt`).
-- Installed public headers: `mini-gmp.h`, `mini-mpq.h`, `MiniMPZ.hpp`, `bitops64.h`.
+- Consumer contract is CMake package usage: `find_package(mini-gmp-plus-plus CONFIG REQUIRED)` + `target_link_libraries(... mini-gmp-plus-plus::mini-gmp-plus-plus)` (see `usage`, `example_CMakeLists.txt`).
+- Installed public headers: `mini-gmp.h`, `mini-mpq.h`, `MiniMPZ.hpp`, `MiniMPF.hpp`, `mini-gmp-plus-plus-config.hpp`, `bitops64.h`.
 - `vcpkg.json` defaults to feature `simd`; disable with `default-features: false` when needed.
 
 ## Change Guidance for Agents

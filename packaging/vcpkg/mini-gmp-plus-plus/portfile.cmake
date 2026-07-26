@@ -1,6 +1,6 @@
 # TODO: SHA512 is a placeholder until the v1.1.0 release tarball exists; it
 # cannot be computed before the tag is published.  To fill it in, run
-#   vcpkg install mini-gmp-plus --overlay-ports=packaging/vcpkg
+#   vcpkg install mini-gmp-plus-plus --overlay-ports=packaging/vcpkg
 # and copy the hash from the "expected SHA512" error message (lowercase hex).
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
@@ -24,7 +24,7 @@ vcpkg_cmake_configure(
 
 vcpkg_cmake_install()
 
-vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/mini-gmp-plus)
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/mini-gmp-plus-plus)
 
 vcpkg_copy_pdbs()
 

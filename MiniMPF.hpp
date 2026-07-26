@@ -2,7 +2,7 @@
 #ifndef MINIMPF_HPP
 #define MINIMPF_HPP
 
-#include "mini-gmp-plus-config.hpp"
+#include "mini-gmp-plus-plus-config.hpp"
 #include "MiniMPZ.hpp"
 #include <array>
 #include <cmath>

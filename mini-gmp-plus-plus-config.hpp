@@ -1,4 +1,4 @@
-// mini-gmp-plus-config.hpp
+// mini-gmp-plus-plus-config.hpp
 // Compatibility configurations for mini-gmp-plus-plus
 //
 // This header provides:
@@ -7,8 +7,8 @@
 //
 // Copyright 2025 Romain Nosenzo
 
-#ifndef MINI_GMP_PLUS_CONFIG_HPP
-#define MINI_GMP_PLUS_CONFIG_HPP
+#ifndef MINI_GMP_PLUS_PLUS_CONFIG_HPP
+#define MINI_GMP_PLUS_PLUS_CONFIG_HPP
 
 // ============================================================================
 // __uint128_t availability detection
@@ -74,4 +74,4 @@
 #  endif
 #endif
 
-#endif // MINI_GMP_PLUS_CONFIG_HPP
+#endif // MINI_GMP_PLUS_PLUS_CONFIG_HPP

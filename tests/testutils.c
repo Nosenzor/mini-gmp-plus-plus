@@ -24,7 +24,7 @@ the GNU MP Library test suite.  If not, see https://www.gnu.org/licenses/.  */
 
 /*
    [Bruno Levy] 11/04/2025
-   linking with lib-mini-gmp-plus instead of #including sources
+   linking with lib-mini-gmp-plus-plus instead of #including sources
 */
 #include "../mini-gmp.h"
 #include "../mini-mpq.h"
