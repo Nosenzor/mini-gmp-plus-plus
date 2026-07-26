@@ -38,10 +38,13 @@
 #   cmake --build build --target benchmark_geometry
 #   ./build/benchmark_geometry
 
-cmake_minimum_required(VERSION 3.5...3.30)
+cmake_minimum_required(VERSION 3.16...3.30)
 project(mini-gmp-plus VERSION 1.0.0 LANGUAGES C CXX)
 
 include(CTest)
+
+# Build the C regression test suite (needs system gmp via pkg-config).
+option(MINI_GMP_PLUS_WITH_TESTS "Build the C regression tests (requires system gmp)" OFF)
 
 # Optional SIMD acceleration via xsimd
 option(MINI_GMP_ENABLE_SIMD "Enable SIMD acceleration using xsimd" ON)
@@ -91,12 +94,27 @@ set(MINI_GMP_SOURCES mini-gmp.c mini-mpq.c)
 if(MINI_GMP_ENABLE_SIMD)
     list(APPEND MINI_GMP_SOURCES mini-gmp-simd.cpp)
 endif()
-add_library(mini-gmp-plus SHARED ${MINI_GMP_SOURCES})
+# Linkage follows BUILD_SHARED_LIBS (shared by default, matching historical
+# behaviour).  Package managers such as vcpkg drive this to build both variants.
+if(NOT DEFINED BUILD_SHARED_LIBS)
+    set(BUILD_SHARED_LIBS ON)
+endif()
+add_library(mini-gmp-plus ${MINI_GMP_SOURCES})
 set_target_properties(mini-gmp-plus PROPERTIES
-    VERSION 1.0.0
-    SOVERSION 1
-    PUBLIC_HEADER "mini-gmp.h;mini-mpq.h;MiniMPZ.hpp;bitops64.h"
+    PUBLIC_HEADER "mini-gmp.h;mini-mpq.h;MiniMPZ.hpp;MiniMPF.hpp;mini-gmp-plus-config.hpp;bitops64.h"
+    POSITION_INDEPENDENT_CODE ON
 )
+if(BUILD_SHARED_LIBS)
+    set_target_properties(mini-gmp-plus PROPERTIES
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+    )
+else()
+    # Static build: the API macros must expand to nothing, both here and in
+    # consumers, so publish MINI_GMP_PLUS_STATIC as a usage requirement
+    # (see the MINI_GMP_PLUS_API logic in mini-gmp.h).
+    target_compile_definitions(mini-gmp-plus PUBLIC MINI_GMP_PLUS_STATIC)
+endif()
 
 # Set include directories for building and installing
 target_include_directories(mini-gmp-plus
@@ -109,14 +127,22 @@ if(MINI_GMP_ENABLE_SIMD)
     target_compile_definitions(mini-gmp-plus PRIVATE MINI_GMP_SIMD)
     target_compile_features(mini-gmp-plus PRIVATE cxx_std_17)
     
-    # Handle different xsimd installation methods
+    # Handle different xsimd installation methods.
+    #
+    # xsimd is a header-only, build-time-only dependency: it is used solely by
+    # mini-gmp-simd.cpp and appears in no installed header.  The dependency is
+    # therefore wrapped in $<BUILD_INTERFACE:...> so it is NOT exported.  This
+    # matters for static builds, where CMake would otherwise record PRIVATE
+    # dependencies as transitive link requirements and consumers would fail with
+    # "library 'xsimd' not found" (nothing resolves the name without a
+    # find_dependency(xsimd) that we deliberately do not want to impose).
     if(TARGET xsimd::xsimd)
         # CONFIG mode with namespace (vcpkg, modern CMake installations)
-        target_link_libraries(mini-gmp-plus PRIVATE xsimd::xsimd)
+        target_link_libraries(mini-gmp-plus PRIVATE $<BUILD_INTERFACE:xsimd::xsimd>)
         message(STATUS "Using xsimd::xsimd target")
     elseif(TARGET xsimd)
         # CONFIG mode without namespace (some package managers)
-        target_link_libraries(mini-gmp-plus PRIVATE xsimd)
+        target_link_libraries(mini-gmp-plus PRIVATE $<BUILD_INTERFACE:xsimd>)
         message(STATUS "Using xsimd target")
     elseif(xsimd_INCLUDE_DIRS)
         # Manual or module mode

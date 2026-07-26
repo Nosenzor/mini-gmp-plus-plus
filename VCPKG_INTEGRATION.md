@@ -1,70 +1,89 @@
 # vcpkg Integration
 
-This directory contains files for integrating mini-gmp-plus with vcpkg.
+`mini-gmp-plus` can be consumed with [vcpkg](https://vcpkg.io). The port files live in
+[`packaging/vcpkg/mini-gmp-plus/`](packaging/vcpkg/mini-gmp-plus):
 
-## Files Overview
+| File | Role |
+|---|---|
+| `vcpkg.json` | Port manifest — version, license, dependencies, features |
+| `portfile.cmake` | Build recipe used by vcpkg |
+| `usage` | Text shown to users after a successful install |
 
-- **vcpkg.json**: Manifest file describing the package and its dependencies
-- **portfile.cmake**: Build instructions for vcpkg
-- **usage**: Instructions for users on how to consume the package
-- **mini-gmp-plus-config.cmake.in**: CMake package configuration template
+The CMake package config template `mini-gmp-plus-config.cmake.in` lives at the repo root and is
+part of the library's own install rules, not of the port.
 
-## Using mini-gmp-plus with vcpkg
+## Consuming the package
 
-### Option 1: Manifest Mode (Recommended)
-
-Add to your project's `vcpkg.json`:
+Add a `vcpkg-configuration.json` next to your `vcpkg.json`:
 
 ```json
 {
-  "dependencies": [
-    "mini-gmp-plus"
+  "default-registry": {
+    "kind": "git",
+    "repository": "https://github.com/microsoft/vcpkg",
+    "baseline": "<a microsoft/vcpkg commit sha>"
+  },
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/Nosenzor/vcpkg-registry",
+      "baseline": "<a vcpkg-registry commit sha>",
+      "packages": ["mini-gmp-plus"]
+    }
   ]
 }
 ```
 
-### Option 2: Classic Mode
+then depend on it as usual:
 
-```bash
-vcpkg install mini-gmp-plus
+```json
+{
+  "dependencies": ["mini-gmp-plus"]
+}
 ```
 
-### In Your CMakeLists.txt
+### In your CMakeLists.txt
 
 ```cmake
 find_package(mini-gmp-plus CONFIG REQUIRED)
 target_link_libraries(your_target PRIVATE mini-gmp-plus::mini-gmp-plus)
 ```
 
-## Contributing to vcpkg Registry
+## What gets installed
 
-To add this package to the official vcpkg registry:
+Headers are installed under `include/mini-gmp-plus/`:
 
-1. Fork the [vcpkg repository](https://github.com/microsoft/vcpkg)
-2. Create a new port directory: `ports/mini-gmp-plus/`
-3. Copy these files to the port directory:
-   - `portfile.cmake`
-   - `vcpkg.json`
-   - `usage`
-4. Update the SHA512 in `portfile.cmake` with the actual hash of your release tarball
-5. Test the port:
-   ```bash
-   vcpkg install mini-gmp-plus --overlay-ports=/path/to/your/ports
-   ```
-6. Submit a pull request to the vcpkg repository
-
-## Local Testing
-
-To test the port locally before submission:
-
-```bash
-# From your vcpkg installation directory
-./vcpkg install mini-gmp-plus --overlay-ports=/path/to/mini-gmp-plus-plus
+```cpp
+#include <mini-gmp-plus/mini-gmp.h>               // C API, multiprecision integers
+#include <mini-gmp-plus/mini-mpq.h>               // C API, rationals
+#include <mini-gmp-plus/MiniMPZ.hpp>              // C++ integer wrapper
+#include <mini-gmp-plus/MiniMPF.hpp>              // C++ float wrapper
+#include <mini-gmp-plus/mini-gmp-plus-config.hpp> // compile-time configuration
+#include <mini-gmp-plus/bitops64.h>               // 64-bit bit-operation helpers
 ```
 
-## Notes
+## Features and linkage
 
-- The package is configured to skip building tests when installed via vcpkg
-- All public headers are installed to `include/mini-gmp-plus/`
-- The library supports dynamic linking on all platforms
+- Feature **`simd`** (enabled by default) builds the xsimd-accelerated `mpn_*` primitives. To
+  install without it, depend on `{ "name": "mini-gmp-plus", "default-features": false }`.
+  `xsimd` is a private build-time dependency; it is not needed to compile against the package.
+- Both **static and dynamic** linkage are supported. When linking the static library, CMake
+  defines `MINI_GMP_PLUS_STATIC` for you as a usage requirement; if you build without CMake,
+  define it yourself so the API macros expand correctly.
+- The C regression tests are not built when installed through vcpkg, so no system `gmp` is
+  needed.
 
+## Platform support
+
+The port declares `"supports": "!(windows & arm)"`. The MSVC path in `mini-gmp.c` uses the
+x64-only `_umul128` intrinsic, which is unavailable on ARM64 MSVC.
+
+## Local testing
+
+To test the port from a checkout of this repository:
+
+```bash
+vcpkg install mini-gmp-plus --overlay-ports=packaging/vcpkg
+```
+
+Add `--triplet x64-windows-static` (or any other triplet) to exercise a specific configuration.
