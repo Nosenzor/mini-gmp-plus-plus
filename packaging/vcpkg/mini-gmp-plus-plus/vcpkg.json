@@ -1,0 +1,29 @@
+{
+  "name": "mini-gmp-plus-plus",
+  "version": "1.1.0",
+  "description": "A fork of GNU mini-gmp optimized for numerical geometry, with fixed 64-bit limbs, stack allocation for small values, optional SIMD acceleration, and C++ wrappers for integers and floats.",
+  "homepage": "https://github.com/Nosenzor/mini-gmp-plus-plus",
+  "license": "LGPL-3.0-or-later OR GPL-2.0-or-later",
+  "supports": "!(windows & arm)",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "default-features": [
+    "simd"
+  ],
+  "features": {
+    "simd": {
+      "description": "SIMD-accelerated limb operations via xsimd (AVX2, SSE2, NEON)",
+      "dependencies": [
+        "xsimd"
+      ]
+    }
+  }
+}

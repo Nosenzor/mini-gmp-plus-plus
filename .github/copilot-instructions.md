@@ -2,7 +2,7 @@
 
 ## What This Project Is
 
-`mini-gmp-plus` is a fork of GMP's `mini-gmp` (the standalone arbitrary-precision integer library) with two additions:
+`mini-gmp-plus-plus` is a fork of GMP's `mini-gmp` (the standalone arbitrary-precision integer library) with two additions:
 - Performance optimizations for numerical geometry: 64-bit-only limbs, stack allocation for numbers ≤ 5 limbs, and cross-compiler 64-bit intrinsics (`bitops64.h`)
 - A modern C++ wrapper (`MiniMPZ.hpp`) over the C `mpz_t` type
 
@@ -49,9 +49,9 @@ cd build/tests && ctest -R t-mul
 | `MiniMPZ.hpp` | Header-only C++ wrapper class over `mpz_t`. All methods are inline. |
 | `bitops64.h` | Cross-compiler intrinsics for 64-bit bit ops (GCC/Clang/MSVC). Not in upstream mini-gmp. |
 
-The `.c` files compile into a **shared library** (`mini-gmp-plus`). `MiniMPZ.hpp` is header-only and depends on that shared library at link time.
+The `.c` files compile into a **shared library by default** (`mini-gmp-plus-plus`; static also supported via `BUILD_SHARED_LIBS=OFF`). `MiniMPZ.hpp` is header-only and depends on that library at link time.
 
-CMake consumers use: `find_package(mini-gmp-plus)` + `target_link_libraries(... mini-gmp-plus::mini-gmp-plus)`.
+CMake consumers use: `find_package(mini-gmp-plus-plus)` + `target_link_libraries(... mini-gmp-plus-plus::mini-gmp-plus-plus)`.
 
 ## Key Conventions
 
@@ -75,4 +75,4 @@ Move ctor/assign raw-copies the `__mpz_struct` limb descriptor, then calls `mpz_
 
 ### Tests
 - **C++ wrapper tests** (`tests/test_MiniMPZ.cpp`): pure `<cassert>` + `<iostream>`, no framework. Each `void test_*()` function prints a pass count. Add new tests as additional `test_*` functions called from `main()`.
-- **C regression tests** (`tests/t-*.c`): link both `mini-gmp-plus` and system `gmp`, run the same computation on both, and compare results. Follow the same pattern when adding new C-level tests.
+- **C regression tests** (`tests/t-*.c`): link both `mini-gmp-plus-plus` and system `gmp`, run the same computation on both, and compare results. Follow the same pattern when adding new C-level tests.

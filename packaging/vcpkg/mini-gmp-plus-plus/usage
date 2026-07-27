@@ -1,0 +1,11 @@
+mini-gmp-plus-plus provides CMake targets:
+
+    find_package(mini-gmp-plus-plus CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE mini-gmp-plus-plus::mini-gmp-plus-plus)
+
+Headers are installed under mini-gmp-plus-plus/, e.g.:
+
+    #include <mini-gmp-plus-plus/mini-gmp.h>    // C API, integers
+    #include <mini-gmp-plus-plus/mini-mpq.h>    // C API, rationals
+    #include <mini-gmp-plus-plus/MiniMPZ.hpp>   // C++ integer wrapper
+    #include <mini-gmp-plus-plus/MiniMPF.hpp>   // C++ float wrapper

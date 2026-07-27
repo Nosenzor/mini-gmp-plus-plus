@@ -340,7 +340,7 @@ int main(int argc, char** argv) {
         const std::vector<SqrtInput> sqrt_inputs = make_sqrt_inputs(options.dataset_size, rng);
         const std::vector<GcdInput> gcd_inputs = make_gcd_inputs(options.dataset_size, rng);
 
-        std::cout << "mini-gmp-plus geometry benchmark\n";
+        std::cout << "mini-gmp-plus-plus geometry benchmark\n";
         std::cout << "Variant       : " << MINI_GMP_PLUS_BENCHMARK_VARIANT << '\n';
         std::cout << "Dataset size  : " << options.dataset_size << '\n';
         std::cout << "Min time/case : " << options.min_time_ms << " ms\n";

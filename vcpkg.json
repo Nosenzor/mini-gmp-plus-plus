@@ -1,17 +1,9 @@
 {
-  "name": "mini-gmp-plus",
-  "version-string": "1.0.0",
-  "description": "A fork of mini-gmp with optimizations for numerical geometry and modern C++ wrapper",
-  "homepage": "https://github.com/BrunoLevy/mini-gmp-plus",
-  "license": "LGPL-3.0-or-later",
-  "supports": "!(windows & arm)",
-  "dependencies": [],
-  "default-features": ["simd"],
-  "features": {
-    "simd": {
-      "description": "SIMD-accelerated limb operations via xsimd (targets AVX2, SSE2, NEON automatically)",
-      "dependencies": ["xsimd"]
-    }
-  }
+  "$comment": "Development manifest: the dependencies needed to BUILD this repository with the vcpkg toolchain. The port manifest that packages mini-gmp-plus-plus for consumers lives in packaging/vcpkg/mini-gmp-plus-plus/vcpkg.json.",
+  "name": "mini-gmp-plus-plus-dev",
+  "version-string": "0.0.0",
+  "description": "Build-time dependencies for developing mini-gmp-plus-plus",
+  "dependencies": [
+    "xsimd"
+  ]
 }
-

@@ -60,7 +60,7 @@ see https://www.gnu.org/licenses/.  */
 #ifdef MINI_GMP_PLUS_STATIC
 #  define MINI_GMP_PLUS_API
 #else
-#  ifdef mini_gmp_plus_EXPORTS
+#  ifdef mini_gmp_plus_plus_EXPORTS
 #    define MINI_GMP_PLUS_API MINI_GMP_PLUS_EXPORT
 #  else
 #    define MINI_GMP_PLUS_API MINI_GMP_PLUS_IMPORT
@@ -197,7 +197,7 @@ MINI_GMP_PLUS_API void mpz_addmul (mpz_t, const mpz_t, const mpz_t);
 MINI_GMP_PLUS_API void mpz_submul_ui (mpz_t, const mpz_t, unsigned long int);
 MINI_GMP_PLUS_API void mpz_submul (mpz_t, const mpz_t, const mpz_t);
 
-/* [mini-gmp-plus] Fused primitives for small linear algebra:
+/* [mini-gmp-plus-plus] Fused primitives for small linear algebra:
      mpz_mul_add_mul (r, a, b, c, d):  r = a*b + c*d
      mpz_mul_sub_mul (r, a, b, c, d):  r = a*b - c*d   (2x2 determinant)
    Both products are formed in stack scratch and combined with a single sign
@@ -208,7 +208,7 @@ MINI_GMP_PLUS_API void mpz_mul_add_mul (mpz_t, const mpz_t, const mpz_t,
 MINI_GMP_PLUS_API void mpz_mul_sub_mul (mpz_t, const mpz_t, const mpz_t,
 					const mpz_t, const mpz_t);
 
-/* [mini-gmp-plus] r = sum_{i<n} u[i]*v[i].  The terms are accumulated in
+/* [mini-gmp-plus-plus] r = sum_{i<n} u[i]*v[i].  The terms are accumulated in
    stack scratch with a single sign reconciliation and normalization at the
    end, which is cheaper than a chain of mpz_addmul.  r may alias any input. */
 MINI_GMP_PLUS_API void mpz_dot_product (mpz_t, size_t,

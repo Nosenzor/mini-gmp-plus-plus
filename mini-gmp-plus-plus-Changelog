@@ -1,3 +1,36 @@
+2026-07-26: Romain Nosenzo <romain@h3d.ai> (with Claude)
+	Release 1.1.0.  Packaging work so the library can be distributed through
+	vcpkg; no behaviour change for existing consumers (the default build is
+	still a shared library with SIMD enabled).
+	* CMakeLists.txt: linkage now follows BUILD_SHARED_LIBS instead of a
+	hardcoded SHARED.  Static builds publish MINI_GMP_PLUS_STATIC as a PUBLIC
+	usage requirement so the MINI_GMP_PLUS_API macros expand correctly in
+	consumers as well, and POSITION_INDEPENDENT_CODE is enabled so the static
+	archive can be linked into shared consumers.  VERSION/SOVERSION derive
+	from PROJECT_VERSION instead of duplicated literals.
+	* CMakeLists.txt: fixed an xsimd export leak visible only in static
+	builds.  CMake records a static library's PRIVATE dependencies as
+	transitive link requirements, so consumers received "-lxsimd" and failed
+	to link.  xsimd is header-only and used by no installed header, so it is
+	now wrapped in $<BUILD_INTERFACE:> and not exported.
+	* CMakeLists.txt: install MiniMPF.hpp and mini-gmp-plus-config.hpp.
+	MiniMPF was previously unusable from an installed copy -- neither it nor
+	the config header it includes was installed.
+	* CMakeLists.txt: raised cmake_minimum_required to 3.16 (3.5 is
+	deprecated under CMake 3.31+ and removed in CMake 4) and declared
+	MINI_GMP_PLUS_WITH_TESTS as a real option(); it was consumed but never
+	declared, so it never appeared in the cache.
+	* COPYING.GPL2, COPYING.GPL3: added.  mini-gmp grants "LGPL-3.0-or-later
+	or GPL-2.0-or-later", but only the LGPL-3.0 text was shipped, and
+	LGPL-3.0 is defined as a supplement to GPL-3.0.
+	* vcpkg.json: repurposed as a development manifest for building this
+	repository with the vcpkg toolchain.  The port manifest that packages
+	mini-gmp-plus for consumers now lives under packaging/vcpkg/.
+	* Removed the empty VCPKG_PREPARATION_SUMMARY.md and
+	VCPKG_PORT_SUBMISSION.md stubs and rewrote VCPKG_INTEGRATION.md, which
+	claimed all public headers were installed and that dynamic linking worked
+	on every platform; neither was true.
+
 2026-07-25: Romain Nosenzo <romain@h3d.ai> (with Claude)
 	Small linear algebra: fused multiply-accumulate primitives, plus
 	cheaper determinant algorithms in the geometry workloads.  Profiling

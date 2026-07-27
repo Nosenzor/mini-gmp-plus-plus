@@ -1,4 +1,4 @@
-/* Regression tests for the mini-gmp-plus fused small-linear-algebra
+/* Regression tests for the mini-gmp-plus-plus fused small-linear-algebra
    primitives: mpz_mul_add_mul, mpz_mul_sub_mul and mpz_dot_product.
 
 Copyright 2026 Free Software Foundation, Inc.
