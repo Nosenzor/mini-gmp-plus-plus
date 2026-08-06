@@ -1,12 +1,8 @@
-# TODO: SHA512 is a placeholder until the v1.1.0 release tarball exists; it
-# cannot be computed before the tag is published.  To fill it in, run
-#   vcpkg install mini-gmp-plus-plus --overlay-ports=packaging/vcpkg
-# and copy the hash from the "expected SHA512" error message (lowercase hex).
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Nosenzor/mini-gmp-plus-plus
     REF "v${VERSION}"
-    SHA512 0
+    SHA512 9507479f9c553999228bfa010517a2873c9b3511cd948ed780ebbb5bb78250898e0144cfc4d97dff3bfd530146c62e33d40bf2e4f7640f2e7f8542c401d6657a
     HEAD_REF main
 )
 
