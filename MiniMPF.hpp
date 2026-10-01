@@ -52,15 +52,14 @@ public:
             abs_val *= 2.0;
             exp--;
 
-            // Convert to integer representation: abs_val is in [1.0, 2.0)
-            // We want mantissa in [2^52, 2^53) so that value = mantissa * 2^(exp-52)
-            // This gives 53 bits of precision (52 explicit + 1 implicit)
-            long mantissa = static_cast<long>(abs_val * (1LL << 53));
-            if (negative) {
-                mantissa = -mantissa;
-            }
-
-            m_Mantisse = MiniMPZ(mantissa);
+            // Convert to integer representation: abs_val is in [1.0, 2.0), so
+            // abs_val * 2^53 is an integer in [2^53, 2^54) (exact: power-of-two scaling)
+            // and value = mantissa * 2^(exp-53).
+            // Built from that integral double via MiniMPZ(double) -> mpz_init_set_d, never
+            // through `long`: long is 32 bits on LLP64 (Windows), where static_cast<long> of
+            // this 54-bit value overflowed for every non-zero input.
+            const double mantissa = abs_val * static_cast<double>(1LL << 53);
+            m_Mantisse = MiniMPZ(negative ? -mantissa : mantissa);
             m_Exponant = exp - 53;
             // normalize() skipped: double constructor already produces normalized mantissa
         }
