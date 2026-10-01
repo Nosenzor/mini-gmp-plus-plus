@@ -1,6 +1,6 @@
 {
   "name": "mini-gmp-plus-plus",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A fork of GNU mini-gmp optimized for numerical geometry, with fixed 64-bit limbs, stack allocation for small values, optional SIMD acceleration, and C++ wrappers for integers and floats.",
   "homepage": "https://github.com/Nosenzor/mini-gmp-plus-plus",
   "license": "LGPL-3.0-or-later OR GPL-2.0-or-later",

@@ -1,3 +1,23 @@
+2026-10-01: Romain Nosenzo <romain@h3d.ai> (with Claude)
+	Release 1.1.1.  One bugfix; no API, ABI, or packaging changes.
+	* MiniMPF.hpp: MiniMPF(double) no longer converts the 53-bit mantissa
+	through `long`.  The mantissa is an integer in [2^53, 2^54), but
+	`long` is 32 bits on LLP64 platforms (Windows), so the conversion
+	overflowed: undefined behaviour, with MSVC x64 yielding INT_MIN, so
+	every non-zero double constructed a garbage MiniMPF; only 0.0
+	survived.  LP64 platforms (Linux, macOS) were unaffected.  The
+	mantissa is now built as an integral double and routed through
+	MiniMPZ(double) -> mpz_init_set_d, which is exact below 2^64 because
+	this fork's limbs are uint64_t on every platform (mini-gmp.h); on LP64
+	the resulting mpz value and exponent are bit-identical to before.
+	* tests/test_MiniMPF_double_ctor.cpp: new regression test, registered
+	in CMakeLists.txt.  Checks that MiniMPF(d).Estimate() and
+	ConvertToDouble()+ldexp() return d exactly, with correct sign, for
+	representative values, extremes (DBL_MIN, denormals, DBL_MAX,
+	nextafter(1,2)) and 5000 finite random bit patterns (splitmix64, fixed
+	seed).  Checks are counted and returned as the exit code rather than
+	assert()-based, so the test also fails in Release/NDEBUG builds.
+
 2026-07-26: Romain Nosenzo <romain@h3d.ai> (with Claude)
 	Release 1.1.0.  Packaging work so the library can be distributed through
 	vcpkg; no behaviour change for existing consumers (the default build is
