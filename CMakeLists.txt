@@ -199,6 +199,11 @@ if(NOT DEFINED VCPKG_TARGET_TRIPLET AND NOT CMAKE_CROSSCOMPILING)
     add_test(NAME test_MiniMPF_stress COMMAND test_MiniMPF_stress)
     set_tests_properties(test_MiniMPF_stress PROPERTIES TIMEOUT 30)
 
+    add_executable(test_MiniMPF_double_ctor tests/test_MiniMPF_double_ctor.cpp)
+    target_link_libraries(test_MiniMPF_double_ctor mini-gmp-plus-plus)
+    add_test(NAME test_MiniMPF_double_ctor COMMAND test_MiniMPF_double_ctor)
+    set_tests_properties(test_MiniMPF_double_ctor PROPERTIES TIMEOUT 30)
+
     add_executable(benchmark_geometry EXCLUDE_FROM_ALL benchmarks/benchmark_geometry.cpp)
     target_include_directories(benchmark_geometry PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_link_libraries(benchmark_geometry mini-gmp-plus-plus)
