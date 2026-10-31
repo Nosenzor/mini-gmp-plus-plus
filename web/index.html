@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mini-gmp-plus-plus &mdash; WebAssembly demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
+    input { font-family: ui-monospace, monospace; padding: 0.4rem; width: 100%; box-sizing: border-box; }
+    button { margin: 0.5rem 0.5rem 0.5rem 0; padding: 0.4rem 0.9rem; }
+    #out { font-family: ui-monospace, monospace; background: #f4f4f4; padding: 0.8rem; white-space: pre-wrap; word-break: break-all; }
+    #status { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>mini-gmp-plus-plus in the browser (WASM)</h1>
+  <p id="status">loading module&hellip;</p>
+  <div id="app" hidden>
+    <p>Arbitrary-precision integers, computed in WebAssembly:</p>
+    <input id="a" value="123456789012345678901234567890">
+    <input id="b" value="987654321012345678901234567890">
+    <div>
+      <button data-op="add">a + b</button>
+      <button data-op="sub">a &minus; b</button>
+      <button data-op="mul">a &times; b</button>
+      <button data-op="div">a &div; b</button>
+      <button data-op="pow">a<sup>64</sup></button>
+    </div>
+    <div id="out"></div>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

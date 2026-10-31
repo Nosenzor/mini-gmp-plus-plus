@@ -187,6 +187,19 @@
       }
     },
     {
+      "name": "wasm-release",
+      "displayName": "WASM Release (Emscripten)",
+      "description": "Cross-compile the library and its embind bindings to WebAssembly. Requires an activated emsdk (source emsdk_env.sh so EMSDK is set or emcc is in PATH) and Ninja.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/emscripten/emscripten-toolchain.cmake",
+        "MINI_GMP_ENABLE_SIMD": "OFF",
+        "BUILD_SHARED_LIBS": "OFF",
+        "MINI_GMP_PLUS_WITH_TESTS": "OFF"
+      }
+    },
+    {
       "name": "msbuild-vcpkg",
       "displayName": "MSBuild (Visual Studio 2022 + vcpkg)",
       "description": "Multi-config build for Windows with vcpkg toolchain",
@@ -274,6 +287,11 @@
       "name": "tsan-nosimd",
       "configurePreset": "tsan-nosimd",
       "displayName": "Build TSan (no SIMD)"
+    },
+    {
+      "name": "wasm-release",
+      "configurePreset": "wasm-release",
+      "displayName": "Build WASM (Emscripten)"
     },
     {
       "name": "msbuild-vcpkg",
