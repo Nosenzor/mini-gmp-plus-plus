@@ -14,6 +14,7 @@
 #   cmake --preset ubsan               # UBSan
 #   cmake --preset asan-ubsan          # ASan + UBSan
 #   cmake --preset tsan                # TSan
+#   cmake --preset wasm-release        # WebAssembly (Emscripten + embind, needs an activated emsdk)
 #
 # Build:   cmake --build --preset <name>
 # Test:    ctest --preset <name>
@@ -48,6 +49,11 @@ option(MINI_GMP_PLUS_WITH_TESTS "Build the C regression tests (requires system g
 
 # Optional SIMD acceleration via xsimd
 option(MINI_GMP_ENABLE_SIMD "Enable SIMD acceleration using xsimd" ON)
+if(EMSCRIPTEN AND MINI_GMP_ENABLE_SIMD)
+    # The WASM build targets the portable baseline; xsimd is a desktop dependency.
+    message(STATUS "Emscripten build: disabling SIMD (MINI_GMP_ENABLE_SIMD=OFF)")
+    set(MINI_GMP_ENABLE_SIMD OFF)
+endif()
 if(MINI_GMP_ENABLE_SIMD)
     # Try to find xsimd with CONFIG mode first
     find_package(xsimd QUIET CONFIG)
@@ -98,6 +104,10 @@ endif()
 # behaviour).  Package managers such as vcpkg drive this to build both variants.
 if(NOT DEFINED BUILD_SHARED_LIBS)
     set(BUILD_SHARED_LIBS ON)
+    if(EMSCRIPTEN)
+        # Emscripten links the static archive into the .wasm module.
+        set(BUILD_SHARED_LIBS OFF)
+    endif()
 endif()
 add_library(mini-gmp-plus-plus ${MINI_GMP_SOURCES})
 set_target_properties(mini-gmp-plus-plus PROPERTIES
@@ -156,7 +166,7 @@ endif()
 # On GCC/Clang, disable PLT-based symbol interposition within the DSO so the
 # compiler can generate direct intra-library calls, reducing overhead on Linux.
 # (No-op on Mach-O, where it only produces an unused-argument warning.)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE AND NOT EMSCRIPTEN)
     target_compile_options(mini-gmp-plus-plus PRIVATE -fno-semantic-interposition)
 endif()
 
@@ -217,6 +227,12 @@ endif()
 
 if(MINI_GMP_PLUS_WITH_TESTS)
    add_subdirectory(tests)
+endif()
+
+# WebAssembly build (Emscripten): static library + embind bindings in Wasm/.
+# Desktop tests/benchmarks are already skipped above (CMAKE_CROSSCOMPILING).
+if(EMSCRIPTEN)
+    add_subdirectory(Wasm)
 endif()
 
 # Installation

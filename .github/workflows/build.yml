@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/wasm-emscripten
   pull_request:
   workflow_dispatch:
 
@@ -138,3 +139,37 @@ jobs:
 
       - name: Test
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+  wasm:
+    name: Build / WebAssembly
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      # Pinned (rather than 'latest') so CI tests the same emscripten the
+      # release artifact is built with.
+      - name: Install Emscripten SDK
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.10
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.10
+          echo "EMSDK=$RUNNER_TEMP/emsdk" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+
+      - name: Configure WASM build
+        run: cmake --preset wasm-release
+
+      - name: Build WASM module
+        run: cmake --build --preset wasm-release --parallel
+
+      - name: Smoke-test the WASM module (Node)
+        run: node Wasm/test/smoke-test.mjs

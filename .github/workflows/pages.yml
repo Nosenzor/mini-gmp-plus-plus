@@ -1,0 +1,89 @@
+name: Pages (WASM demo)
+
+# Builds the mini-gmp-plus-plus WebAssembly module and deploys the static demo
+# page (web/) to GitHub Pages. The deployed site is fully self-contained:
+# index.html + app.js + the freshly built mini-gmp-plus-plus.{js,wasm}.
+#
+# One-time repository setup: Settings -> Pages -> Build and deployment ->
+# Source must be set to "GitHub Actions".
+
+on:
+  push:
+    branches: [main, feat/wasm-emscripten]
+    paths:
+      - 'web/**'
+      - 'Wasm/**'
+      - 'cmake/emscripten/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build WASM demo and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      # Pinned (rather than 'latest') so deploys stay reproducible; 6.0.10 is
+      # the version the build was verified against.
+      - name: Install Emscripten SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.10
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.10
+          echo "EMSDK=$RUNNER_TEMP/emsdk" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+
+      - name: Configure WASM build
+        run: cmake --preset wasm-release
+
+      - name: Build WASM module
+        run: cmake --build --preset wasm-release --parallel
+
+      - name: Smoke-test the WASM module (Node)
+        run: node Wasm/test/smoke-test.mjs
+
+      - name: Assemble site
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          cp -r web/. site/
+          cp builds/wasm-release/bin/mini-gmp-plus-plus.js site/
+          cp builds/wasm-release/bin/mini-gmp-plus-plus.wasm site/
+          ls -lah site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

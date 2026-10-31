@@ -1,0 +1,122 @@
+name: Release WASM (npm package)
+
+# Builds the WebAssembly module and packs it as an npm package
+# (mini-gmp-plus-plus-wasm-<version>.tgz) containing mini-gmp-plus-plus.js,
+# mini-gmp-plus-plus.wasm and the TypeScript declarations.
+#
+# - push of a v*.*.* tag: the package version is the tag (without the leading
+#   'v') and the tarball is attached to the GitHub release
+# - workflow_dispatch: version taken from Wasm/package.json, tarball uploaded
+#   as a workflow artifact only
+# - if the NPM_TOKEN repository secret is set, the package is also published
+#   to the npm registry
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-wasm:
+    name: Build WASM module
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      # Pinned (rather than 'latest') so the release artifact stays
+      # reproducible; 6.0.10 is the version the build was verified against.
+      - name: Install Emscripten SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 6.0.10
+          "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.10
+          echo "EMSDK=$RUNNER_TEMP/emsdk" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
+
+      - name: Configure WASM build
+        run: cmake --preset wasm-release
+
+      - name: Build WASM module
+        run: cmake --build --preset wasm-release --parallel
+
+      - name: Smoke-test the WASM module (Node)
+        run: node Wasm/test/smoke-test.mjs
+
+      - name: Upload WASM module
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-module
+          path: builds/wasm-release/bin/
+          retention-days: 5
+
+  package:
+    name: Pack npm package
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # attaching the tarball to the release on tags
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Download WASM module
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-module
+          path: npm-pack
+
+      - name: Assemble npm package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp Wasm/package.json npm-pack/package.json
+          cp Wasm/types/mini-gmp-plus-plus.d.ts npm-pack/mini-gmp-plus-plus.d.ts
+          cp Wasm/README.md npm-pack/README.md
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            npm --prefix npm-pack pkg set "version=${GITHUB_REF_NAME#v}"
+          fi
+          ls -la npm-pack
+
+      - name: npm pack
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./npm-pack/package.json').version")
+          (cd npm-pack && npm pack --pack-destination ..)
+          echo "tarball=mini-gmp-plus-plus-wasm-${version}.tgz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload npm tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-gmp-plus-plus-wasm
+          path: ${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+
+      - name: Attach tarball to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.tarball }}
+
+      - name: Publish to npm
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        working-directory: npm-pack
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
