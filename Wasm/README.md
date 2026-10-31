@@ -59,6 +59,37 @@ console.log(f.add(new MiniGmp.MiniMPF(0.25)).estimate()); // 0.75
 See [`types/mini-gmp-plus-plus.d.ts`](types/mini-gmp-plus-plus.d.ts) for the
 full API. Notes:
 
+- the `.js` loader locates the `.wasm` next to itself (`import.meta.url`), so
+  both files must be served/copied together
+- on wasm32, `toLong()` truncates like a 32-bit `long` and `pow(exp)` takes a
+  32-bit exponent; prefer `toString(base)` for big values
+
+## Demo page (GitHub Pages)
+
+[`web/`](../web/) is a small big-integer calculator built on the module. The
+[`pages.yml`](../.github/workflows/pages.yml) workflow builds the module,
+copies the artifacts next to the page, and deploys it to GitHub Pages on
+changes to `web/`, `Wasm/` or the WASM build files (one-time setup: Settings ->
+Pages -> Source = "GitHub Actions").
+
+## npm package
+
+Release tags (`v*.*.*`) and manual dispatches of
+[`release-wasm.yml`](../.github/workflows/release-wasm.yml) build the module
+and run `npm pack` on [`package.json`](package.json), producing
+`mini-gmp-plus-plus-wasm-<version>.tgz` (attached to the GitHub release on
+tags; published to npm when the `NPM_TOKEN` secret is set):
+
+```bash
+npm install mini-gmp-plus-plus-wasm
+```
+
+```js
+import createMiniGmpPlusPlus from "mini-gmp-plus-plus-wasm";
+const MiniGmp = await createMiniGmpPlusPlus();
+console.log(new MiniGmp.MiniMPZ("2", 10).pow(256).toString(10));
+```
+
 - `MiniMPZ.toString(base)` takes an explicit base (10 or 16).
 - `MiniMPZ.toLong()` truncates to a 32-bit `long` on wasm32; use `toString`
   for values beyond int32.

@@ -1,15 +1,21 @@
 // Demo page for the mini-gmp-plus-plus WebAssembly module.
-// Serve the repo root over HTTP (the module is fetched from
-// ../builds/wasm-release/bin/) e.g.:  python3 -m http.server
-// then open /web/ in a browser.
+//
+// Deployed (GitHub Pages): the built artifacts sit next to this file.
+// Local dev: serve the repo root (e.g. python3 -m http.server) and open
+// /web/ - the artifacts are then fetched from builds/wasm-release/bin/.
 
 const status = document.getElementById("status");
 const app = document.getElementById("app");
 const out = document.getElementById("out");
 
-const { default: createMiniGmpPlusPlus } = await import(
-  "../builds/wasm-release/bin/mini-gmp-plus-plus.js"
-);
+let createMiniGmpPlusPlus;
+try {
+  ({ default: createMiniGmpPlusPlus } = await import("./mini-gmp-plus-plus.js"));
+} catch {
+  ({ default: createMiniGmpPlusPlus } = await import(
+    "../builds/wasm-release/bin/mini-gmp-plus-plus.js"
+  ));
+}
 const MiniGmp = await createMiniGmpPlusPlus();
 
 status.textContent = "module loaded";

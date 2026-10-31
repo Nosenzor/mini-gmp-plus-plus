@@ -94,4 +94,21 @@ cross-platform trends, but they are still noisier than measurements collected
 on a dedicated local machine.
 
 
+WebAssembly (browser / Node)
+----------------------------
+The library can be cross-compiled to WebAssembly with Emscripten and used from
+JavaScript/TypeScript through embind bindings of `MiniMPZ` and `MiniMPF`:
+
+```bash
+source <your-emsdk>/emsdk_env.sh
+cmake --preset wasm-release
+cmake --build --preset wasm-release
+node Wasm/test/smoke-test.mjs
+```
+
+This produces `builds/wasm-release/bin/mini-gmp-plus-plus.{js,wasm}`, an ES6
+module also packaged as the `mini-gmp-plus-plus-wasm` npm package on releases,
+with an interactive demo page in [web/](web/) deployed to GitHub Pages.
+See [Wasm/README.md](Wasm/README.md) for details.
+
 _Bruno Lévy, November 2025_
